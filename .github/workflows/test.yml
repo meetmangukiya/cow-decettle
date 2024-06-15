@@ -35,7 +35,11 @@ jobs:
           forge build --sizes
         id: build
 
+      - name: snapshot sync check
+        run: |
+          forge snapshot -vvv --fork-url https://eth.llamarpc.com --fork-block-number 19640875
+
       - name: Run Forge tests
         run: |
-          forge test -vvv
+          forge test -vvv --fork-url https://eth.llamarpc.com --fork-block-number 19640875
         id: test
