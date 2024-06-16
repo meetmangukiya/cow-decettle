@@ -216,6 +216,8 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     /// @notice Determine if the pool is a valid solver.
     function isSolver(address pool) external view returns (bool) {
         SubPoolData memory subpoolData = subPoolData[pool];
+        // check first if the pool exists
+        if (subpoolData.collateral == address(0)) revert SubPoolFactory__UnknownPool();
         // all pools that have not yet exited, not currently frozen and not yet quit are solvers.
         // poked pools are also still solvers until frozen i.e. freeze delay has passed.
         return !subpoolData.hasExited && !subpoolData.isFrozen && subpoolData.exitTimestamp == 0;

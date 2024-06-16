@@ -378,5 +378,9 @@ contract SubPoolFactoryTest is BaseTest {
         vm.prank(solverPoolAddress);
         factory.quitPool();
         assertEq(factory.isSolver(solverPoolAddress), false, "quited pools shouldnt be a solver");
+
+        // uninited pools should revert
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
+        factory.isSolver(makeAddr("someUninitedpool"));
     }
 }
