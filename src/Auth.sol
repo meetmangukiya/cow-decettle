@@ -1,35 +1,39 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.26;
 
-contract Auth {
-    error Auth__OnlyWards();
+/// @dev explicitly define first owner in inheriting contracts in the constructor.
+abstract contract Auth {
+    error Auth__OnlyOwners();
 
-    event Rely(address indexed);
-    event Deny(address indexed);
+    event OwnerAdded(address indexed);
+    event OwnerRemoved(address indexed);
 
-    mapping(address => bool) public wards;
-
-    constructor() {
-        wards[msg.sender] = true;
-        emit Rely(msg.sender);
-    }
+    mapping(address => bool) public isOwner;
 
     modifier auth() {
-        if (!wards[msg.sender]) {
-            revert Auth__OnlyWards();
+        if (!isOwner[msg.sender]) {
+            revert Auth__OnlyOwners();
         }
         _;
     }
 
     /// @notice Allows `usr` to perform root-level functions.
-    function rely(address usr) external auth {
-        wards[usr] = true;
-        emit Rely(usr);
+    function addOwner(address usr) external auth {
+        _addOwner(usr);
     }
 
     /// @notice Denies `usr` to perform root-level functions.
-    function deny(address usr) external auth {
-        wards[usr] = false;
-        emit Deny(usr);
+    function removeOwner(address usr) external auth {
+        _removeOwner(usr);
+    }
+
+    function _addOwner(address usr) internal {
+        isOwner[usr] = true;
+        emit OwnerAdded(usr);
+    }
+
+    function _removeOwner(address usr) internal {
+        isOwner[usr] = false;
+        emit OwnerRemoved(usr);
     }
 }

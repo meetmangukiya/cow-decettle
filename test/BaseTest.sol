@@ -10,22 +10,9 @@ contract BaseTest is Test {
     uint24 freezeDelay = 1 days;
     uint104 minCowAmt = 100_000 ether;
     uint104 minUsdAmt = 50_000e8;
-    SubPoolFactory factory = new SubPoolFactory(exitDelay, freezeDelay, minCowAmt, minUsdAmt, TOKEN_COW_MAINNET);
+    SubPoolFactory factory = new SubPoolFactory(exitDelay, minCowAmt, TOKEN_COW_MAINNET);
     ERC20 weth = ERC20(TOKEN_WETH_MAINNET);
     ERC20 cow = ERC20(TOKEN_COW_MAINNET);
 
-    function setUp() public virtual {
-        factory.allowCollateral(TOKEN_WETH_MAINNET, CHAINLINK_PRICE_FEED_WETH_MAINNET);
-    }
-
-    function _mockChainlinkPrice(address token, int256 price) internal {
-        address priceFeed = address(factory.priceFeeds(token));
-        require(priceFeed != address(0), "price feed is not mapped for given token");
-        vm.mockCall(
-            priceFeed,
-            abi.encodePacked(IAggregatorV3Interface.latestRoundData.selector),
-            // roundId, answer, startedAt, updatedAt, answeredInRound
-            abi.encode(block.number, price, block.timestamp, block.timestamp, block.number)
-        );
-    }
+    function setUp() public virtual {}
 }

@@ -10,23 +10,25 @@ contract SubPool is Auth {
     error SubPool__OnlyFactory();
     error SubPool__ExitDelayNotElapsedYet();
     error SubPool__CollateralTokenAlreadyInitialized();
+    error SubPool__InsufficientETH();
+    error SubPool__CannotBillAfterExitDelay();
+    error SubPool__InvalidWithdraw();
 
     /// @dev cannot be immutable because that allows for multiple pools per solver address.
     address public collateralToken;
-    address public immutable owner;
     address public immutable COW;
     ISubPoolFactory public immutable factory;
 
-    string public backendUrl;
+    uint256 collateralDue;
+    uint256 cowDue;
+    uint256 ethDue;
 
     constructor(address _owner, address _cow) {
-        owner = _owner;
         factory = ISubPoolFactory(msg.sender);
         COW = _cow;
 
         // rely the owner
-        wards[owner] = true;
-        emit Rely(owner);
+        _addOwner(_owner);
     }
 
     function initializeCollateralToken(address token) external {
@@ -41,46 +43,112 @@ contract SubPool is Auth {
         _;
     }
 
-    /// @notice Determine the amount of tokens that are due to put the pool
+    /// @notice Determine the amount of tokens(collateral, COW, ETH) that are due to put the pool
     ///         above collateralization requirements.
-    function dues() external view returns (uint256 amt, uint256 cowAmt) {
-        (amt, cowAmt) = factory.dues(address(this));
+    function dues() external view returns (uint256 amt, uint256 cowAmt, uint256 ethAmt) {
+        amt = collateralDue;
+        cowAmt = cowDue;
+        ethAmt = ethDue;
     }
 
     /// @notice Pull required number of tokens from the sender to push the pool
     ///         above collateralization.
-    function heal() external {
-        (uint256 amt, uint256 cowAmt) = factory.dues(address(this));
-        if (amt > 0) SafeTransferLib.safeTransferFrom(collateralToken, msg.sender, address(this), amt);
-        if (cowAmt > 0) SafeTransferLib.safeTransferFrom(COW, msg.sender, address(this), cowAmt);
+    function heal() external payable {
+        uint256 amt = collateralDue;
+        uint256 cowAmt = cowDue;
+        uint256 ethAmt = ethDue;
+        payDues(amt, cowAmt, ethAmt);
     }
 
-    /// @notice Signal the intent to quit the solver pool.
-    function quit() external auth {
-        factory.quitPool();
+    /// @notice Pay partial or full dues.
+    function payDues(uint256 amt, uint256 cowAmt, uint256 ethAmt) public payable {
+        if (msg.value < ethAmt) revert SubPool__InsufficientETH();
+        if (amt > 0) {
+            SafeTransferLib.safeTransferFrom(collateralToken, msg.sender, address(this), amt);
+            uint256 due = collateralDue;
+            collateralDue = amt > due ? 0 : due - amt;
+        }
+        if (cowAmt > 0) {
+            SafeTransferLib.safeTransferFrom(COW, msg.sender, address(this), cowAmt);
+            uint256 due = cowDue;
+            cowDue = cowAmt > due ? 0 : due - cowAmt;
+        }
+        if (ethAmt > 0) {
+            uint256 due = ethDue;
+            ethDue = ethAmt > due ? 0 : due - ethAmt;
+        }
+    }
+
+    /// @notice Signal the intent to announce exit the solver pool.
+    function announceExit() external auth {
+        factory.announceExit();
     }
 
     /// @notice Execute the exit after the exit delay has elapsed.
-    function exit() external {
+    function exit() external auth {
         uint256 exitTimestamp = factory.exitTimestamp(address(this));
-        if (exitTimestamp == 0 || block.timestamp < exitTimestamp) revert SubPool__ExitDelayNotElapsedYet();
+        // can skip the 0 check i.e. pool not announced an exit check because block.timestamp
+        // will never be < 0
+        if (block.timestamp < exitTimestamp) revert SubPool__ExitDelayNotElapsedYet();
 
         uint256 collateralBalance = ERC20(collateralToken).balanceOf(address(this));
         uint256 cowBalance = ERC20(COW).balanceOf(address(this));
-        SafeTransferLib.safeTransfer(collateralToken, owner, collateralBalance);
-        SafeTransferLib.safeTransfer(COW, owner, cowBalance);
+        SafeTransferLib.safeTransfer(collateralToken, msg.sender, collateralBalance);
+        SafeTransferLib.safeTransfer(COW, msg.sender, cowBalance);
+        SafeTransferLib.safeTransferETH(msg.sender, address(this).balance);
 
         factory.exitPool();
     }
 
-    /// @notice Slip tokens for fines.
-    function slip(uint256 amt, uint256 cowAmt, address to) external onlyFactory {
-        if (amt > 0) SafeTransferLib.safeTransfer(collateralToken, to, amt);
-        if (cowAmt > 0) SafeTransferLib.safeTransfer(COW, to, cowAmt);
+    function withdrawTokens(address[] calldata tokens) external auth {
+        uint256 exitTimestamp = factory.exitTimestamp(address(this));
+        bool exitElapsed = exitTimestamp != 0 && block.timestamp >= exitTimestamp;
+
+        if (exitElapsed) {
+            for (uint256 i = 0; i < tokens.length;) {
+                SafeTransferLib.safeTransfer(tokens[i], msg.sender, ERC20(tokens[i]).balanceOf(address(this)));
+                unchecked {
+                    ++i;
+                }
+            }
+            uint256 ethBalance = address(this).balance;
+            if (ethBalance > 0) {
+                SafeTransferLib.safeTransferETH(msg.sender, address(this).balance);
+            }
+        } else {
+            for (uint256 i = 0; i < tokens.length;) {
+                address token = tokens[i];
+                if (token == COW || token == collateralToken) revert SubPool__InvalidWithdraw();
+                SafeTransferLib.safeTransfer(token, msg.sender, ERC20(token).balanceOf(address(this)));
+                unchecked {
+                    ++i;
+                }
+            }
+        }
     }
 
-    /// @notice Update the backend api url.
-    function updateBackendUrl(string calldata url) external auth {
-        backendUrl = url;
+    /// @notice Bill some fines.
+    function bill(uint256 amt, uint256 cowAmt, uint256 ethAmt, address to) external onlyFactory {
+        // verify that the pool's exit delay has not elapsed if it was requested.
+        uint256 exitTimestamp = factory.exitTimestamp(address(this));
+        if (exitTimestamp != 0 && block.timestamp >= exitTimestamp) revert SubPool__CannotBillAfterExitDelay();
+
+        if (amt > 0) {
+            SafeTransferLib.safeTransfer(collateralToken, to, amt);
+            collateralDue += amt;
+        }
+        if (cowAmt > 0) {
+            SafeTransferLib.safeTransfer(COW, to, cowAmt);
+            cowDue += cowAmt;
+        }
+        if (ethAmt > 0) {
+            SafeTransferLib.safeTransferETH(to, ethAmt);
+            ethDue += ethAmt;
+        }
+    }
+
+    /// @notice Update the backend api uri.
+    function updateBackendUri(string calldata uri) external auth {
+        factory.updateBackendUri(uri);
     }
 }

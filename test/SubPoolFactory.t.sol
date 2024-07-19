@@ -1,6 +1,6 @@
 pragma solidity 0.8.26;
 
-import {SubPoolFactory, Auth} from "src/SubPoolFactory.sol";
+import {SubPoolFactory, Auth, SubPool} from "src/SubPoolFactory.sol";
 import {MockToken} from "./MockToken.sol";
 import {TOKEN_WETH_MAINNET, CHAINLINK_PRICE_FEED_WETH_MAINNET, TOKEN_COW_MAINNET} from "src/constants.sol";
 import {BaseTest} from "./BaseTest.sol";
@@ -11,39 +11,21 @@ contract SubPoolFactoryTest is BaseTest {
     address solver = makeAddr("solver");
     address solverPoolAddress;
     uint256 solverEthAmt = 20 ether;
-    address notRelied = makeAddr("notRelied");
+    SubPool solverPool;
+    address notOwner = makeAddr("notOwner");
+    string backendUri = "https://backend.solver.com";
 
     function setUp() public override {
         super.setUp();
-
-        _mockChainlinkPrice(TOKEN_WETH_MAINNET, 3500e8);
 
         deal(TOKEN_WETH_MAINNET, solver, solverEthAmt);
         deal(TOKEN_COW_MAINNET, solver, minCowAmt);
         vm.startPrank(solver);
         ERC20(TOKEN_WETH_MAINNET).approve(address(factory), solverEthAmt);
         ERC20(TOKEN_COW_MAINNET).approve(address(factory), minCowAmt);
-        solverPoolAddress = factory.create(TOKEN_WETH_MAINNET, solverEthAmt, minCowAmt);
+        solverPoolAddress = factory.create(TOKEN_WETH_MAINNET, solverEthAmt, minCowAmt, backendUri);
+        solverPool = SubPool(solverPoolAddress);
         vm.stopPrank();
-    }
-
-    function testAllowCollateral() external {
-        address token = makeAddr("token");
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__InvalidPriceFeed.selector);
-        factory.allowCollateral(token, address(0));
-
-        vm.expectRevert(Auth.Auth__OnlyWards.selector);
-        vm.prank(notRelied);
-        factory.allowCollateral(token, address(0));
-    }
-
-    function testRevokeCollateral() external {
-        vm.prank(notRelied);
-        vm.expectRevert(Auth.Auth__OnlyWards.selector);
-        factory.revokeCollateral(TOKEN_WETH_MAINNET);
-
-        factory.revokeCollateral(TOKEN_WETH_MAINNET);
-        assertEq(address(factory.priceFeeds(TOKEN_WETH_MAINNET)), address(0), "didnt revoke as expected");
     }
 
     function testCreate() external {
@@ -52,17 +34,12 @@ contract SubPoolFactoryTest is BaseTest {
         // if < min cow, revert
         vm.expectRevert(SubPoolFactory.SubPoolFactory__InsufficientCollateral.selector);
         vm.prank(user);
-        factory.create(TOKEN_WETH_MAINNET, 100 ether, minCowAmt - 1);
-
-        // if collateral < minUsd, revert
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__InsufficientCollateral.selector);
-        vm.prank(user);
-        factory.create(TOKEN_WETH_MAINNET, 0.1 ether, minCowAmt);
+        factory.create(TOKEN_WETH_MAINNET, 1, minCowAmt - 1, backendUri);
 
         // if amts are correct, but user doesnt have the tokens, revert
         vm.expectRevert();
         vm.prank(user);
-        factory.create(TOKEN_WETH_MAINNET, 15 ether, minCowAmt);
+        factory.create(TOKEN_WETH_MAINNET, 15 ether, minCowAmt, backendUri);
 
         // give tokens to the user
         deal(TOKEN_WETH_MAINNET, user, 15 ether);
@@ -70,16 +47,14 @@ contract SubPoolFactoryTest is BaseTest {
         vm.startPrank(user);
         ERC20(TOKEN_WETH_MAINNET).approve(address(factory), 15 ether);
         ERC20(TOKEN_COW_MAINNET).approve(address(factory), minCowAmt);
-        factory.create(TOKEN_WETH_MAINNET, 15 ether, minCowAmt);
+        factory.create(TOKEN_WETH_MAINNET, 15 ether, minCowAmt, backendUri);
         vm.stopPrank();
 
-        (address collateral, uint104 exitTimestamp, uint104 freezeTimestamp, bool isFrozen, bool isExited) =
-            factory.subPoolData(solverPoolAddress);
+        (address collateral, uint88 exitTimestamp, bool isExited) = factory.subPoolData(solverPoolAddress);
         assertEq(collateral, TOKEN_WETH_MAINNET, "collateral not as expected");
         assertEq(exitTimestamp, 0, "exit timestamp should be initialized to 0");
-        assertEq(freezeTimestamp, 0, "freeze timestamp should be initialized to 0");
-        assertEq(isFrozen, false, "pool shouldnt be frozen at initialization");
         assertEq(isExited, false, "pool shouldnt be exited at initialization");
+        assertEq(factory.backendUri(solverPoolAddress), backendUri, "solver backend uri not set at initialization");
     }
 
     function testPoolOf() external view {
@@ -87,213 +62,99 @@ contract SubPoolFactoryTest is BaseTest {
         assertEq(expectedSolverPool, solverPoolAddress, "solver pool address not as expected");
     }
 
-    function testDues() external {
-        (uint256 tokenDues, uint256 cowDues) = factory.dues(solverPoolAddress);
-        assertEq(tokenDues, 0, "token dues not 0");
-        assertEq(cowDues, 0, "cow dues not 0");
-
-        // slash some cow
-        uint256 slashedCowAmt = 10;
-        factory.fine(solverPoolAddress, 0, slashedCowAmt);
-        (tokenDues, cowDues) = factory.dues(solverPoolAddress);
-        assertEq(tokenDues, 0, "token dues not 0");
-        assertEq(cowDues, slashedCowAmt, "cow dues not as expected");
-
-        // plunge the eth price
-        uint256 newPrice = 2000e8;
-        _mockChainlinkPrice(TOKEN_WETH_MAINNET, 2000e8);
-        (tokenDues, cowDues) = factory.dues(solverPoolAddress);
-        uint256 expectedTokenDue = (minUsdAmt - (solverEthAmt * newPrice / 1 ether)) * 1 ether / (newPrice);
-        assertEq(tokenDues, expectedTokenDue, "token dues not as expected");
-        assertEq(cowDues, slashedCowAmt, "cow dues not as expected");
-
-        // all dues should be 0 after a pool quits
-        vm.prank(solverPoolAddress);
-        factory.quitPool();
-        (tokenDues, cowDues) = factory.dues(solverPoolAddress);
-        assertEq(tokenDues, 0, "token dues not 0 after quit");
-        assertEq(cowDues, 0, "cow dues not 0 after exit");
+    function testSubPool() external {
+        address expectedSolverPool = factory.solverSubPool(solver);
+        assertEq(expectedSolverPool, solverPoolAddress, "solver pool address not as expected");
+        address anotherSolver = makeAddr("anotherSolver");
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
+        factory.solverSubPool(anotherSolver);
     }
 
-    function testFine() external {
-        // only relied users can fine
-        vm.prank(notRelied);
-        vm.expectRevert(Auth.Auth__OnlyWards.selector);
-        factory.fine(solverPoolAddress, 1 ether, 10000 ether);
+    function testSubPoolData() external {
+        (address collateral, uint88 exitTs, bool hasExited) = factory.subPoolData(solverPoolAddress);
+        assertEq(collateral, TOKEN_WETH_MAINNET, "collateral not as expected");
+        assertEq(exitTs, 0, "exit timestamp not as expected");
+        assertEq(hasExited, false, "hasExited not as expected");
 
+        vm.prank(solver);
+        solverPool.announceExit();
+        (, exitTs, hasExited) = factory.subPoolData(solverPoolAddress);
+        assertEq(exitTs, block.timestamp + exitDelay, "exit timestamp not as expected");
+        assertEq(hasExited, false, "hasExited not as expected");
+
+        uint256 beforeExitTs = exitTs;
+        vm.warp(exitTs);
+        vm.prank(solver);
+        solverPool.exit();
+        (, exitTs, hasExited) = factory.subPoolData(solverPoolAddress);
+        assertEq(exitTs, beforeExitTs, "exit timestamp not as expected");
+        assertEq(hasExited, true, "hasExited not as expected");
+    }
+
+    function testBill() external {
+        // only relied users can fine
+        vm.prank(notOwner);
+        vm.expectRevert(Auth.Auth__OnlyOwners.selector);
+        factory.bill(solverPoolAddress, 1 ether, 10000 ether, 0.1 ether, "billing reason");
+
+        vm.deal(solverPoolAddress, 1 ether);
         uint256 wethBalanceBefore = weth.balanceOf(address(this));
         uint256 cowBalanceBefore = cow.balanceOf(address(this));
+        uint256 ethBalanceBefore = address(this).balance;
         uint256 wethFined = 0.1 ether;
-        factory.fine(solverPoolAddress, wethFined, 0);
+        uint256 cowFined = 10 ether;
+        uint256 ethFined = 0.01 ether;
+        factory.bill(solverPoolAddress, wethFined, cowFined, ethFined, "testing bill");
 
         assertEq(weth.balanceOf(address(this)) - wethBalanceBefore, wethFined, "weth not fined as expected");
-        assertEq(cow.balanceOf(address(this)) - cowBalanceBefore, 0, "cow not fined as expected");
-        (,, uint104 freezeTimestamp, bool isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(freezeTimestamp, 0, "pool shouldn't have been poked yet");
-        assertEq(isFrozen, false, "pool shouldn't be frozen");
+        assertEq(cow.balanceOf(address(this)) - cowBalanceBefore, cowFined, "cow not fined as expected");
+        assertEq(address(this).balance - ethBalanceBefore, ethFined, "eth not fined as expected");
+        (, uint88 exitTimestamp, bool hasExited) = factory.subPoolData(solverPoolAddress);
+        assertEq(exitTimestamp, 0, "pool shouldn't have announced exit yet");
+        assertEq(hasExited, false, "pool shouldn't be frozen");
 
-        // fine 1 cow, will make it pokable
-        factory.fine(solverPoolAddress, 0, 1);
-        assertEq(cow.balanceOf(address(this)) - cowBalanceBefore, 1, "cow not fined as expected");
-        (,, freezeTimestamp, isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(freezeTimestamp, block.timestamp + freezeDelay, "freeze timestamp not as expected");
-        assertEq(isFrozen, false, "pool shouldn't be frozen");
+        // bill should work in exit period
+        vm.prank(solver);
+        solverPool.announceExit();
 
-        // send the 1 cow back
-        cow.transfer(solverPoolAddress, 1);
-        factory.thaw(solverPoolAddress);
-        (,, freezeTimestamp, isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(freezeTimestamp, 0, "freeze timestamp not 0 after thaw");
+        ethBalanceBefore = address(this).balance;
+        factory.bill(solverPoolAddress, 0, 0, 1, "billing in exit period");
+        assertEq(address(this).balance - ethBalanceBefore, 1, "didnt bill as expected");
 
-        // fine significant eth, should make it pokable again
-        wethBalanceBefore = weth.balanceOf(address(this));
-        wethFined = 10 ether;
-        factory.fine(solverPoolAddress, wethFined, 0);
-        assertEq(weth.balanceOf(address(this)) - wethBalanceBefore, wethFined, "weth not fined as expected");
-        (,, freezeTimestamp, isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(freezeTimestamp, block.timestamp + freezeDelay, "freeze timestamp not as expected");
-        assertEq(isFrozen, false, "pool shouldn't be frozen");
-    }
-
-    function testFreeze() external {
-        (,, uint104 freezeTimestamp, bool isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(freezeTimestamp, 0, "pool shouldn't have been poked yet");
-        assertEq(isFrozen, false, "pool shouldn't be frozen");
-
-        // plunge eth price
-        _mockChainlinkPrice(TOKEN_WETH_MAINNET, 2000e8);
-        factory.poke(solverPoolAddress);
-        (,, freezeTimestamp, isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(freezeTimestamp, block.timestamp + freezeDelay, "freezeTiemstamp not as expected");
-        assertEq(isFrozen, false, "pool shouldn't be frozen");
-
-        // forward time, but not enough
-        vm.warp(freezeTimestamp - 1);
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__FreezeTimestampNotElapsedYet.selector);
-        factory.freeze(solverPoolAddress);
-
-        // forward time, also verify that anyone can freeze anyone
-        vm.warp(freezeTimestamp);
-        vm.prank(notRelied);
-        factory.freeze(solverPoolAddress);
-        (,, freezeTimestamp, isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(freezeTimestamp, 0, "freezeTimestamp should reset to 0");
-        assertEq(isFrozen, true, "pool is not frozen");
-    }
-
-    function testPoke() external {
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__CannotPoke.selector);
-        factory.poke(solverPoolAddress);
-
-        // plunge eth price
-        _mockChainlinkPrice(TOKEN_WETH_MAINNET, 2000e8);
-        // anyone should be able to poke anyone
-        vm.prank(notRelied);
-        factory.poke(solverPoolAddress);
-        (,, uint104 freezeTimestamp, bool isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(isFrozen, false, "pool shouldn't be frozen yet");
-        assertEq(freezeTimestamp, block.timestamp + freezeDelay, "freezeTimestamp not as expected");
-
-        // reset eth price back to normal
-        _mockChainlinkPrice(TOKEN_WETH_MAINNET, 3000e8);
-        factory.thaw(solverPoolAddress);
-        (,, freezeTimestamp, isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(isFrozen, false, "pool shouldnt be frozen");
-        assertEq(freezeTimestamp, 0, "freezeTimestamp is not 0");
-
-        // fine 1 cow, should autopoke
-        factory.fine(solverPoolAddress, 0, 1);
-        vm.prank(notRelied);
-        (,, freezeTimestamp, isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(isFrozen, false, "pool shouldnt be frozen");
-        assertEq(freezeTimestamp, block.timestamp + freezeDelay, "freezeTimestamp not as expected");
-    }
-
-    function testThaw() external {
-        // plunge eth price
-        _mockChainlinkPrice(TOKEN_WETH_MAINNET, 2000e8);
-        factory.poke(solverPoolAddress);
-        (,, uint104 freezeTimestamp, bool isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(isFrozen, false, "pool shouldnt be frozen");
-        assertEq(freezeTimestamp, block.timestamp + freezeDelay, "freezeTimestamp is not as expected");
-
-        // try to thaw even though nothing has changed
-        vm.prank(notRelied);
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__CannotThaw.selector);
-        factory.thaw(solverPoolAddress);
-
-        // eth price back to normal, also verify that anyone can thaw anyone
-        _mockChainlinkPrice(TOKEN_WETH_MAINNET, 3500e8);
-        vm.prank(notRelied);
-        factory.thaw(solverPoolAddress);
-        (,, freezeTimestamp, isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(isFrozen, false, "pool shouldnt be frozen");
-        assertEq(freezeTimestamp, 0, "freezeTimestamp is not 0");
-
-        // plunge eth price again, also freeze it this time, verify that thaw restores frozen status too
-        _mockChainlinkPrice(TOKEN_WETH_MAINNET, 2000e8);
-        factory.poke(solverPoolAddress);
-        (,, freezeTimestamp, isFrozen,) = factory.subPoolData(solverPoolAddress);
-        vm.warp(freezeTimestamp);
-        factory.freeze(solverPoolAddress);
-        (,, freezeTimestamp, isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(isFrozen, true, "pool should be frozen");
-        assertEq(freezeTimestamp, 0, "freezeTimestamp is not 0");
-
-        // eth price back to normal
-        _mockChainlinkPrice(TOKEN_WETH_MAINNET, 3500e8);
-        factory.thaw(solverPoolAddress);
-        (,, freezeTimestamp, isFrozen,) = factory.subPoolData(solverPoolAddress);
-        assertEq(isFrozen, false, "pool shouldnt be frozen after thaw");
-        assertEq(freezeTimestamp, 0, "freezeTimestamp should be 0 after thaw");
+        // bill shouldn't work after the exit delay has elapsed
+        ethBalanceBefore = address(this).balance;
+        (, exitTimestamp,) = factory.subPoolData(solverPoolAddress);
+        vm.warp(exitTimestamp);
+        vm.expectRevert(SubPool.SubPool__CannotBillAfterExitDelay.selector);
+        factory.bill(solverPoolAddress, 0, 0, 1, "billing after exit delay");
     }
 
     function testSetExitDelay() external {
-        vm.prank(notRelied);
-        vm.expectRevert(Auth.Auth__OnlyWards.selector);
+        vm.prank(notOwner);
+        vm.expectRevert(Auth.Auth__OnlyOwners.selector);
         factory.setExitDelay(1);
 
         factory.setExitDelay(1);
-        (uint24 exitDelay,,,) = factory.cfg();
+        (uint32 exitDelay,) = factory.cfg();
         assertEq(exitDelay, 1, "exit delay not set as expected");
     }
 
-    function testSetFreezeDelay() external {
-        vm.prank(notRelied);
-        vm.expectRevert(Auth.Auth__OnlyWards.selector);
-        factory.setFreezeDelay(1);
-
-        factory.setFreezeDelay(1);
-        (, uint24 freezeDelay,,) = factory.cfg();
-        assertEq(freezeDelay, 1, "freeze delay not set as expected");
-    }
-
     function testSetMinCowAmt() external {
-        vm.prank(notRelied);
-        vm.expectRevert(Auth.Auth__OnlyWards.selector);
+        vm.prank(notOwner);
+        vm.expectRevert(Auth.Auth__OnlyOwners.selector);
         factory.setMinCowAmt(1);
 
         factory.setMinCowAmt(1);
-        (,, uint104 minCowAmt,) = factory.cfg();
+        (, uint224 minCowAmt) = factory.cfg();
         assertEq(minCowAmt, 1, "min cow amt not set as expected");
     }
 
-    function testSetMinUsdAmt() external {
-        vm.prank(notRelied);
-        vm.expectRevert(Auth.Auth__OnlyWards.selector);
-        factory.setMinUsdAmt(1);
-
-        factory.setMinUsdAmt(1);
-        (,,, uint104 minUsdAmt) = factory.cfg();
-        assertEq(minUsdAmt, 1, "min usd amt not set as expected");
-    }
-
     function testExitTimestamp() external {
-        assertEq(factory.exitTimestamp(solverPoolAddress), 0, "pool hasnt quit yet");
+        assertEq(factory.exitTimestamp(solverPoolAddress), 0, "pool hasnt exited yet");
 
         // quit the pool
         vm.prank(solverPoolAddress);
-        factory.quitPool();
+        factory.announceExit();
         uint256 exitTs = block.timestamp + exitDelay;
         assertEq(factory.exitTimestamp(solverPoolAddress), exitTs, "exit timestamp not as expected");
 
@@ -304,41 +165,43 @@ contract SubPoolFactoryTest is BaseTest {
         assertEq(factory.exitTimestamp(solverPoolAddress), exitTs, "exit timestamp not as expected");
     }
 
-    function testQuitPool() external {
+    function testAnnounceExit() external {
         // addresses not spawned by the factory's create method shouldn't be able to
         // call quit pool
-        vm.prank(notRelied);
+        vm.prank(notOwner);
         vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
-        factory.quitPool();
+        factory.announceExit();
 
-        assertEq(factory.exitTimestamp(solverPoolAddress), 0, "no exit timestamp before quit");
+        assertEq(factory.exitTimestamp(solverPoolAddress), 0, "no exit timestamp before announce exit");
         vm.prank(solverPoolAddress);
-        factory.quitPool();
+        factory.announceExit();
         assertEq(
-            factory.exitTimestamp(solverPoolAddress), block.timestamp + exitDelay, "exit timestamp not set by quit"
+            factory.exitTimestamp(solverPoolAddress),
+            block.timestamp + exitDelay,
+            "exit timestamp not set by announce exit"
         );
 
         // pool cannot quit twice
         vm.prank(solverPoolAddress);
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__PoolAlreadyQuit.selector);
-        factory.quitPool();
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__PoolAlreadyAnnouncedExit.selector);
+        factory.announceExit();
     }
 
     function testExitPool() external {
         // addresses not spawned by the factory's create method shouldn't be able to
         // call exit pool
-        vm.prank(notRelied);
+        vm.prank(notOwner);
         vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
         factory.exitPool();
 
         // try to exit without quit
         vm.prank(solverPoolAddress);
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__PoolHasNotQuitYet.selector);
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__PoolHasNotAnnouncedExitYet.selector);
         factory.exitPool();
 
         // exit time not elapsed
         vm.startPrank(solverPoolAddress);
-        factory.quitPool();
+        factory.announceExit();
         vm.expectRevert(SubPoolFactory.SubPoolFactory__ExitDelayNotElapsed.selector);
         factory.exitPool();
         vm.stopPrank();
@@ -347,7 +210,7 @@ contract SubPoolFactoryTest is BaseTest {
         vm.warp(exitTs);
         vm.prank(solverPoolAddress);
         factory.exitPool();
-        (,,,, bool hasExited) = factory.subPoolData(solverPoolAddress);
+        (,, bool hasExited) = factory.subPoolData(solverPoolAddress);
         assertEq(hasExited, true, "pool not marked exited");
 
         // try to exit again, should fail
@@ -356,31 +219,40 @@ contract SubPoolFactoryTest is BaseTest {
         factory.exitPool();
     }
 
-    function testIsSolver() external {
-        assertEq(factory.isSolver(solverPoolAddress), true, "pool should be a solver");
+    function testUpdateBackendUri() external {
+        assertEq(factory.backendUri(solverPoolAddress), backendUri, "backend uri not as expected");
+        string memory newBackendUri = "https://new-backend.solver.com";
+        vm.prank(solver);
+        solverPool.updateBackendUri(newBackendUri);
+        assertEq(factory.backendUri(solverPoolAddress), newBackendUri);
+    }
 
-        // plunge eth price and poke, poked pools should still be solvers
-        _mockChainlinkPrice(TOKEN_WETH_MAINNET, 2000e8);
-        factory.poke(solverPoolAddress);
-        assertEq(factory.isSolver(solverPoolAddress), true, "pool shouldnt be a solver after being poked");
+    function testCanSolve() external {
+        assertEq(factory.canSolve(solver), true, "pool should be a solver");
 
-        // forward time and freeze
-        vm.warp(block.timestamp + freezeDelay);
-        factory.freeze(solverPoolAddress);
-        assertEq(factory.isSolver(solverPoolAddress), false, "frozen pool shouldnt be a solver");
+        vm.deal(solverPoolAddress, 1 ether);
+        factory.bill(solverPoolAddress, 0, 0, 1, "pool shouldnt be a solver if there are dues");
+        assertEq(factory.canSolve(solver), false, "pool shouldnt be a solver");
 
-        // recover eth price, thaw
-        _mockChainlinkPrice(TOKEN_WETH_MAINNET, 3500e8);
-        factory.thaw(solverPoolAddress);
-        assertEq(factory.isSolver(solverPoolAddress), true, "thawed pool should be a solver");
+        // pay the dues and that should restore solvability
+        solverPool.heal{value: 1}();
+        assertEq(factory.canSolve(solver), true, "pool should be a solver again after the pool is healed");
 
-        // quit pool
+        // announce exit
         vm.prank(solverPoolAddress);
-        factory.quitPool();
-        assertEq(factory.isSolver(solverPoolAddress), false, "quited pools shouldnt be a solver");
+        factory.announceExit();
+        assertEq(factory.canSolve(solver), false, "announced exited pools shouldnt be a solver");
+
+        // exit pool
+        uint256 exitTs = factory.exitTimestamp(solverPoolAddress);
+        vm.warp(exitTs);
+        vm.prank(solverPoolAddress);
+        factory.exitPool();
 
         // uninited pools should revert
         vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
-        factory.isSolver(makeAddr("someUninitedpool"));
+        factory.canSolve(makeAddr("someUninitedpool"));
     }
+
+    receive() external payable {}
 }
