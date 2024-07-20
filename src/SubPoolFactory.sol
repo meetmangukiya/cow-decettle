@@ -15,6 +15,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     error SubPoolFactory__PoolHasNotAnnouncedExitYet();
     error SubPoolFactory__PoolAlreadyAnnouncedExit();
     error SubPoolFactory__PoolAlreadyExited();
+    error SubPoolFactory__InvalidFastTrackExit();
 
     event UpdateExitDelay(uint256 newDelay);
     event UpdateMinCowAmt(uint256 amt);
@@ -36,7 +37,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     struct Config {
         /// the delay between `announceExit` and `exit`.
         uint32 exitDelay;
-        /// @notice minimum amount of COW to be bonded.
+        /// minimum amount of COW to be bonded.
         uint224 minCowAmt;
     }
 
@@ -76,6 +77,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     function create(address token, uint256 amt, uint256 cowAmt, string calldata uri) external returns (address) {
         SubPool subpool = new SubPool{salt: bytes32(uint256(uint160(msg.sender)))}(msg.sender, COW);
         subpool.initializeCollateralToken(token);
+        emit SolverPoolDeployed(msg.sender, address(subpool));
         Config memory config = cfg;
 
         if (cowAmt < config.minCowAmt) {
@@ -87,6 +89,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
 
         subPoolData[address(subpool)] = SubPoolData({collateral: token, exitTimestamp: 0, hasExited: false});
         backendUri[address(subpool)] = uri;
+        emit UpdateBackendUri(address(subpool), uri);
 
         return address(subpool);
     }
@@ -124,19 +127,24 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         emit Exit(pool);
     }
 
-    /// @notice Read subpool's exit timestamp.
-    function exitTimestamp(address pool) external view returns (uint256) {
-        SubPoolData memory subpoolData = subPoolData[pool];
-        if (subpoolData.collateral == address(0)) revert SubPoolFactory__UnknownPool();
-        return subpoolData.exitTimestamp;
-    }
-
     /// @notice Update solver's backend uri.
     function updateBackendUri(string calldata uri) external {
         address pool = msg.sender;
         SubPoolData memory subpoolData = subPoolData[pool];
         if (subpoolData.collateral == address(0)) revert SubPoolFactory__UnknownPool();
         backendUri[pool] = uri;
+        emit UpdateBackendUri(pool, uri);
+    }
+
+    /// @notice Override the exit timestamp to allow for an earlier exit.
+    function fastTrackExit(address pool, uint88 newExitTimestamp) external auth {
+        SubPoolData memory subpoolData = subPoolData[pool];
+        if (subpoolData.collateral == address(0)) revert SubPoolFactory__UnknownPool();
+        if (subpoolData.exitTimestamp == 0) revert SubPoolFactory__PoolHasNotAnnouncedExitYet();
+        if (subpoolData.hasExited) revert SubPoolFactory__PoolAlreadyExited();
+        if (newExitTimestamp > subpoolData.exitTimestamp) revert SubPoolFactory__InvalidFastTrackExit();
+        subpoolData.exitTimestamp = newExitTimestamp;
+        subPoolData[pool] = subpoolData;
     }
 
     /// @notice Determine if the solver can submit solutions.
@@ -156,6 +164,13 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         // cannot solve if there are any pending dues
         (uint256 amt, uint256 cowAmt, uint256 ethAmt) = SubPool(pool).dues();
         return amt == 0 && cowAmt == 0 && ethAmt == 0;
+    }
+
+    /// @notice Read subpool's exit timestamp.
+    function exitTimestamp(address pool) external view returns (uint256) {
+        SubPoolData memory subpoolData = subPoolData[pool];
+        if (subpoolData.collateral == address(0)) revert SubPoolFactory__UnknownPool();
+        return subpoolData.exitTimestamp;
     }
 
     /// @notice Read solver's subpool address.

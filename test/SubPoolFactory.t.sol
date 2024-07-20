@@ -254,5 +254,40 @@ contract SubPoolFactoryTest is BaseTest {
         factory.canSolve(makeAddr("someUninitedpool"));
     }
 
+    function testFastTrackExit() external {
+        // only owners
+        vm.prank(notOwner);
+        vm.expectRevert(Auth.Auth__OnlyOwners.selector);
+        factory.fastTrackExit(solverPoolAddress, uint88(block.timestamp));
+
+        // only known pools
+        address randomPool = makeAddr("randomPool");
+        require(randomPool.code.length == 0);
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
+        factory.fastTrackExit(randomPool, uint88(block.timestamp));
+
+        // only pools that have announced an exit
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__PoolHasNotAnnouncedExitYet.selector);
+        factory.fastTrackExit(solverPoolAddress, uint88(block.timestamp));
+
+        // exit timestamp can only be reduced
+        vm.prank(solver);
+        solverPool.announceExit();
+        uint256 exitTs = factory.exitTimestamp(solverPoolAddress);
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__InvalidFastTrackExit.selector);
+        factory.fastTrackExit(solverPoolAddress, uint88(exitTs + 1));
+
+        uint256 newExitTs = exitTs - 100;
+        factory.fastTrackExit(solverPoolAddress, uint88(newExitTs));
+        assertEq(factory.exitTimestamp(solverPoolAddress), newExitTs, "new exit timestamp not as expected");
+
+        // already exited pools' exit timestamp cannot be overwrote
+        vm.warp(newExitTs);
+        vm.prank(solver);
+        solverPool.exit();
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__PoolAlreadyExited.selector);
+        factory.fastTrackExit(solverPoolAddress, uint88(newExitTs - 100));
+    }
+
     receive() external payable {}
 }
