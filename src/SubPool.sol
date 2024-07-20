@@ -43,42 +43,6 @@ contract SubPool is Auth {
         _;
     }
 
-    /// @notice Determine the amount of tokens(collateral, COW, ETH) that are due to put the pool
-    ///         above collateralization requirements.
-    function dues() external view returns (uint256 amt, uint256 cowAmt, uint256 ethAmt) {
-        amt = collateralDue;
-        cowAmt = cowDue;
-        ethAmt = ethDue;
-    }
-
-    /// @notice Pull required number of tokens from the sender to push the pool
-    ///         above collateralization.
-    function heal() external payable {
-        uint256 amt = collateralDue;
-        uint256 cowAmt = cowDue;
-        uint256 ethAmt = ethDue;
-        payDues(amt, cowAmt, ethAmt);
-    }
-
-    /// @notice Pay partial or full dues.
-    function payDues(uint256 amt, uint256 cowAmt, uint256 ethAmt) public payable {
-        if (msg.value < ethAmt) revert SubPool__InsufficientETH();
-        if (amt > 0) {
-            SafeTransferLib.safeTransferFrom(collateralToken, msg.sender, address(this), amt);
-            uint256 due = collateralDue;
-            collateralDue = amt > due ? 0 : due - amt;
-        }
-        if (cowAmt > 0) {
-            SafeTransferLib.safeTransferFrom(COW, msg.sender, address(this), cowAmt);
-            uint256 due = cowDue;
-            cowDue = cowAmt > due ? 0 : due - cowAmt;
-        }
-        if (ethAmt > 0) {
-            uint256 due = ethDue;
-            ethDue = ethAmt > due ? 0 : due - ethAmt;
-        }
-    }
-
     /// @notice Signal the intent to announce exit the solver pool.
     function announceExit() external auth {
         factory.announceExit();
@@ -100,6 +64,9 @@ contract SubPool is Auth {
         factory.exitPool();
     }
 
+    /// @notice withdraw arbitrary tokens
+    /// @dev Can only withdraw non cow and non collateral tokens while the pool is active or in exit delay.
+    ///      When the pool's exit delay has elapsed it can withdraw any token and ether balance.
     function withdrawTokens(address[] calldata tokens) external auth {
         uint256 exitTimestamp = factory.exitTimestamp(address(this));
         bool exitElapsed = exitTimestamp != 0 && block.timestamp >= exitTimestamp;
@@ -127,6 +94,34 @@ contract SubPool is Auth {
         }
     }
 
+    /// @notice Pull required number of tokens from the sender to push the pool
+    ///         above collateralization.
+    function heal() external payable {
+        uint256 amt = collateralDue;
+        uint256 cowAmt = cowDue;
+        uint256 ethAmt = ethDue;
+        payDues(amt, cowAmt, ethAmt);
+    }
+
+    /// @notice Pay partial or full dues.
+    function payDues(uint256 amt, uint256 cowAmt, uint256 ethAmt) public payable {
+        if (msg.value != ethAmt) revert SubPool__InsufficientETH();
+        if (amt > 0) {
+            SafeTransferLib.safeTransferFrom(collateralToken, msg.sender, address(this), amt);
+            uint256 due = collateralDue;
+            collateralDue = amt >= due ? 0 : due - amt;
+        }
+        if (cowAmt > 0) {
+            SafeTransferLib.safeTransferFrom(COW, msg.sender, address(this), cowAmt);
+            uint256 due = cowDue;
+            cowDue = cowAmt >= due ? 0 : due - cowAmt;
+        }
+        if (ethAmt > 0) {
+            uint256 due = ethDue;
+            ethDue = ethAmt >= due ? 0 : due - ethAmt;
+        }
+    }
+
     /// @notice Bill some fines.
     function bill(uint256 amt, uint256 cowAmt, uint256 ethAmt, address to) external onlyFactory {
         // verify that the pool's exit delay has not elapsed if it was requested.
@@ -150,5 +145,13 @@ contract SubPool is Auth {
     /// @notice Update the backend api uri.
     function updateBackendUri(string calldata uri) external auth {
         factory.updateBackendUri(uri);
+    }
+
+    /// @notice Determine the amount of tokens(collateral, COW, ETH) that are due to put the pool
+    ///         above collateralization requirements.
+    function dues() external view returns (uint256 amt, uint256 cowAmt, uint256 ethAmt) {
+        amt = collateralDue;
+        cowAmt = cowDue;
+        ethAmt = ethDue;
     }
 }
