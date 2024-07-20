@@ -1,6 +1,6 @@
 pragma solidity 0.8.26;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {SubPoolFactory, IAggregatorV3Interface} from "src/SubPoolFactory.sol";
 import {
     TOKEN_WETH_MAINNET,
@@ -21,7 +21,13 @@ contract BaseTest is Test {
     ERC20 weth = ERC20(TOKEN_WETH_MAINNET);
     ERC20 cow = ERC20(TOKEN_COW_MAINNET);
     GPv2Settlement settlement = GPv2Settlement(SETTLEMENT_MAINNET);
-    SignedSettlement signedSettlement = new SignedSettlement(factory, settlement);
+    Vm.Wallet attestor;
+    Vm.Wallet notAttestor;
+    SignedSettlement signedSettlement;
 
-    function setUp() public virtual {}
+    function setUp() public virtual {
+        attestor = vm.createWallet("attestor");
+        notAttestor = vm.createWallet("notAttestor");
+        signedSettlement = new SignedSettlement(factory, settlement, attestor.addr);
+    }
 }

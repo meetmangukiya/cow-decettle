@@ -10,27 +10,18 @@ import {SubPoolFactory} from "./SubPoolFactory.sol";
 import {GPv2Settlement, IERC20} from "cowprotocol/GPv2Settlement.sol";
 
 contract SignedSettlement is Auth, EIP712 {
-    error SignedSettlement__UnknownSigner();
+    error SignedSettlement__InvalidAttestor();
     error SignedSettlement__NotASolver();
 
     /// @notice whether signer can attest
-    mapping(address => bool) public can;
+    address public immutable attestor;
     SubPoolFactory public immutable factory;
     GPv2Settlement public immutable settlement;
 
-    constructor(SubPoolFactory _factory, GPv2Settlement _settlement) {
+    constructor(SubPoolFactory _factory, GPv2Settlement _settlement, address _attestor) {
         factory = _factory;
         settlement = _settlement;
-    }
-
-    /// @notice Approve signer to act as signing authority to attest to the settlements.
-    function hope(address signer) external auth {
-        can[signer] = true;
-    }
-
-    /// @notice Revoke approval for `signer`.
-    function nope(address signer) external auth {
-        can[signer] = false;
+        attestor = _attestor;
     }
 
     /// @notice Takes the required settlement data and verifies that it has been
@@ -47,16 +38,15 @@ contract SignedSettlement is Auth, EIP712 {
         bytes32 digest =
             _hashTypedData(LibSignedSettlement.hashSettleData(tokens, clearingPrices, trades, interactions[0]));
         address signer = ECDSA.recoverCalldata(digest, signature);
-        if (!can[signer]) {
-            revert SignedSettlement__UnknownSigner();
+        if (signer != attestor) {
+            revert SignedSettlement__InvalidAttestor();
         }
 
         // scoped to clear the stack and prevent stack too deep error
         {
             // verify that the pool exists, hasnt undercollateralized, frozen or exited.
-            address solverPool = factory.poolOf(msg.sender);
-            bool isSolver = factory.isSolver(solverPool);
-            if (!isSolver) revert SignedSettlement__NotASolver();
+            bool canSolve = factory.canSolve(msg.sender);
+            if (!canSolve) revert SignedSettlement__NotASolver();
         }
 
         settlement.settle(tokens, clearingPrices, trades, interactions);
