@@ -3,8 +3,6 @@ pragma solidity 0.8.26;
 
 import {Auth} from "./Auth.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {ERC20} from "solady/tokens/ERC20.sol";
-import {IAggregatorV3Interface} from "./interfaces/chainlink.sol";
 import {SubPool} from "./SubPool.sol";
 import {ISubPoolFactory} from "./interfaces/ISubPoolFactory.sol";
 
@@ -16,6 +14,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     error SubPoolFactory__PoolAlreadyAnnouncedExit();
     error SubPoolFactory__PoolAlreadyExited();
     error SubPoolFactory__InvalidFastTrackExit();
+    error SubPoolFactory__CannotBillAfterExitDelay();
 
     event UpdateExitDelay(uint256 newDelay);
     event UpdateMinCowAmt(uint256 amt);
@@ -34,73 +33,71 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         bool hasExited;
     }
 
-    struct Config {
-        /// the delay between `announceExit` and `exit`.
-        uint32 exitDelay;
-        /// minimum amount of COW to be bonded.
-        uint224 minCowAmt;
-    }
-
-    /// @notice Individual subpool datas
+    /// @notice Individual subpool data
     mapping(address => SubPoolData) public subPoolData;
     /// @notice Solver backend uri
     /// @dev    Not stored in the SubPoolData because we don't want to load the string
     ///         everytime we read the subpooldata in memory.
     mapping(address => string) public backendUri;
-    /// @notice system cfg
-    Config public cfg;
-    /// @notice COW token
+    /// @notice the delay between `announceExit` and `exit`.
+    uint256 public exitDelay;
+    /// @notice the minimum amount of COW to be bonded.
+    uint256 public minCowAmt;
     address public immutable COW;
 
-    constructor(uint32 exitDelay, uint224 minCowAmt, address cow) {
-        cfg = Config({exitDelay: exitDelay, minCowAmt: minCowAmt});
+    constructor(uint256 exitDelay_, uint256 minCowAmt_, address cow) {
+        exitDelay = exitDelay_;
+        minCowAmt = minCowAmt_;
         emit UpdateExitDelay(exitDelay);
         emit UpdateMinCowAmt(minCowAmt);
         COW = cow;
         _addOwner(msg.sender);
     }
 
-    /// @notice Set the delay between `quit` and `exit`.
+    /// @notice Set the delay between `announceExit` and `exitPool`.
     function setExitDelay(uint32 delay) external auth {
-        cfg.exitDelay = delay;
+        exitDelay = delay;
         emit UpdateExitDelay(delay);
     }
 
     /// @notice Set the min cow amount.
     function setMinCowAmt(uint224 amt) external auth {
-        cfg.minCowAmt = amt;
+        minCowAmt = amt;
         emit UpdateMinCowAmt(amt);
     }
 
     /// @notice Create a `SubPool` for the user at a deterministic address with salt as `msg.sender`.
     /// @param token  - The token to use as collateral.
     function create(address token, uint256 amt, uint256 cowAmt, string calldata uri) external returns (address) {
-        SubPool subpool = new SubPool{salt: bytes32(uint256(uint160(msg.sender)))}(msg.sender, COW);
+        SubPool subpool = new SubPool{salt: bytes32(0)}(msg.sender, COW);
         subpool.initializeCollateralToken(token);
         emit SolverPoolDeployed(msg.sender, address(subpool));
-        Config memory config = cfg;
 
-        if (cowAmt < config.minCowAmt) {
+        if (cowAmt < minCowAmt) {
             revert SubPoolFactory__InsufficientCollateral();
         }
-
-        SafeTransferLib.safeTransferFrom(token, msg.sender, address(subpool), amt);
-        SafeTransferLib.safeTransferFrom(COW, msg.sender, address(subpool), cowAmt);
 
         subPoolData[address(subpool)] = SubPoolData({collateral: token, exitTimestamp: 0, hasExited: false});
         backendUri[address(subpool)] = uri;
         emit UpdateBackendUri(address(subpool), uri);
 
+        SafeTransferLib.safeTransferFrom(token, msg.sender, address(subpool), amt);
+        SafeTransferLib.safeTransferFrom(COW, msg.sender, address(subpool), cowAmt);
+
         return address(subpool);
     }
 
-    /// @notice Bill a fine to a subpool
-    /// @param pool   - The subpool to fine.
-    /// @param amt    - Amount of pool's collateralToken to fine.
-    /// @param cowAmt - Amount of COW to fine.
-    /// @param ethAmt - Amount of ETH to fine.
-    /// @param reason - Reason to fine.
+    /// @notice Bill a subpool
+    /// @param pool   - The subpool to bill.
+    /// @param amt    - Amount of pool's collateralToken to bill.
+    /// @param cowAmt - Amount of COW to bill.
+    /// @param ethAmt - Amount of ETH to bill.
+    /// @param reason - Reason for bill (e.g. fees, fine etc).
     function bill(address pool, uint256 amt, uint256 cowAmt, uint256 ethAmt, string calldata reason) external auth {
+        // verify that the pool's exit delay has not elapsed if it was requested.
+        uint256 exitTs = subPoolData[pool].exitTimestamp;
+        if (exitTs != 0 && block.timestamp >= exitTs) revert SubPoolFactory__CannotBillAfterExitDelay();
+
         SubPool(pool).bill(amt, cowAmt, ethAmt, msg.sender);
         emit SolverPoolBilled(pool, amt, cowAmt, ethAmt, reason);
     }
@@ -111,7 +108,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         SubPoolData memory subpoolData = subPoolData[pool];
         if (subpoolData.collateral == address(0)) revert SubPoolFactory__UnknownPool();
         if (subpoolData.exitTimestamp != 0) revert SubPoolFactory__PoolAlreadyAnnouncedExit();
-        subPoolData[pool].exitTimestamp = uint88(block.timestamp + cfg.exitDelay);
+        subPoolData[pool].exitTimestamp = uint88(block.timestamp + exitDelay);
         emit AnnounceExit(pool);
     }
 
@@ -157,7 +154,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         // poked pools are also still solvers until frozen i.e. freeze delay has passed.
 
         // cannot solve if exited or announced exit
-        if (subpoolData.hasExited || subpoolData.exitTimestamp != 0) {
+        if (subpoolData.exitTimestamp != 0) {
             return false;
         }
 
@@ -185,12 +182,6 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     /// @notice pool address for given user computed deterministically.
     function poolOf(address usr) public view returns (address) {
         bytes32 initCodeHash = keccak256(abi.encodePacked(type(SubPool).creationCode, abi.encode(usr, COW)));
-        return address(
-            uint160(
-                uint256(
-                    keccak256(abi.encodePacked(hex"ff", address(this), bytes32(uint256(uint160(usr))), initCodeHash))
-                )
-            )
-        );
+        return address(uint160(uint256(keccak256(abi.encodePacked(hex"ff", address(this), bytes32(0), initCodeHash)))));
     }
 }

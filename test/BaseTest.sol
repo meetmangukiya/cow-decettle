@@ -1,7 +1,7 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {SubPoolFactory, IAggregatorV3Interface} from "src/SubPoolFactory.sol";
+import {SubPoolFactory} from "src/SubPoolFactory.sol";
 import {TOKEN_WETH_MAINNET, TOKEN_COW_MAINNET, CHAINLINK_PRICE_FEED_WETH_MAINNET} from "src/constants.sol";
 import {ERC20} from "solady/tokens/ERC20.sol";
 

@@ -125,7 +125,7 @@ contract SubPoolFactoryTest is BaseTest {
         ethBalanceBefore = address(this).balance;
         (, exitTimestamp,) = factory.subPoolData(solverPoolAddress);
         vm.warp(exitTimestamp);
-        vm.expectRevert(SubPool.SubPool__CannotBillAfterExitDelay.selector);
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__CannotBillAfterExitDelay.selector);
         factory.bill(solverPoolAddress, 0, 0, 1, "billing after exit delay");
     }
 
@@ -135,7 +135,7 @@ contract SubPoolFactoryTest is BaseTest {
         factory.setExitDelay(1);
 
         factory.setExitDelay(1);
-        (uint32 exitDelay,) = factory.cfg();
+        uint256 exitDelay = factory.exitDelay();
         assertEq(exitDelay, 1, "exit delay not set as expected");
     }
 
@@ -145,7 +145,7 @@ contract SubPoolFactoryTest is BaseTest {
         factory.setMinCowAmt(1);
 
         factory.setMinCowAmt(1);
-        (, uint224 minCowAmt) = factory.cfg();
+        uint256 minCowAmt = factory.minCowAmt();
         assertEq(minCowAmt, 1, "min cow amt not set as expected");
     }
 

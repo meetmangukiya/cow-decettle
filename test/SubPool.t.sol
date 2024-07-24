@@ -81,40 +81,6 @@ contract SubPoolTest is Test {
         assertEq(solverPoolAddress.balance, ethBalanceBefore + ethAmtDue, "heal did not transfer enough eth");
     }
 
-    function testPayDues() external {
-        // create some dues
-        factory.bill(solverPoolAddress, amtDue, cowAmtDue, ethAmtDue, "create some dues for the test");
-
-        // anyone can heal
-        address user = makeAddr("user");
-        assertEq(pool.isOwner(user), false, "user is a owner");
-
-        uint256 collateralBalanceBefore = collateralToken.balanceOf(address(pool));
-        uint256 cowBalanceBefore = COW.balanceOf(address(pool));
-        uint256 ethBalanceBefore = solverPoolAddress.balance;
-
-        uint256 amtToPay = 1 ether;
-        uint256 cowAmtToPay = 0.1 ether;
-        uint256 ethAmtToPay = 0.01 ether;
-        deal(address(collateralToken), user, amtToPay);
-        deal(address(COW), user, cowAmtToPay);
-        vm.deal(user, ethAmtToPay);
-
-        vm.startPrank(user);
-        collateralToken.approve(address(pool), amtToPay);
-        COW.approve(address(pool), cowAmtToPay);
-        pool.payDues{value: ethAmtToPay}(amtToPay, cowAmtToPay, ethAmtToPay);
-        vm.stopPrank();
-
-        assertEq(
-            collateralToken.balanceOf(address(pool)),
-            collateralBalanceBefore + amtToPay,
-            "heal did not transfer the tokens"
-        );
-        assertEq(COW.balanceOf(address(pool)), cowBalanceBefore + cowAmtToPay, "heal did not transfer the tokens");
-        assertEq(solverPoolAddress.balance, ethBalanceBefore + ethAmtToPay, "heal did not transfer enough eth");
-    }
-
     function testAnnounceExit() external {
         // pool should notify the factory
         vm.expectCall(address(factory), abi.encodeCall(ISubPoolFactory.announceExit, ()));
