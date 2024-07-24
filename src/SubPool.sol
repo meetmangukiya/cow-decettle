@@ -132,6 +132,11 @@ contract SubPool is Auth {
         factory.updateBackendUri(uri);
     }
 
+    /// @notice Update solver membership.
+    function updateSolverMembership(address solver, bool add) external auth {
+        factory.updateSolverMembership(solver, add);
+    }
+
     /// @notice Determine the amount of tokens(collateral, COW, ETH) that are due to put the pool
     ///         above collateralization requirements.
     function dues() external view returns (uint256 amt, uint256 cowAmt, uint256 ethAmt) {

@@ -15,6 +15,8 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     error SubPoolFactory__PoolAlreadyExited();
     error SubPoolFactory__InvalidFastTrackExit();
     error SubPoolFactory__CannotBillAfterExitDelay();
+    error SubPoolFactory__SolverHasActiveMembership();
+    error SubPoolFactory__SolverNotAMember();
 
     event UpdateExitDelay(uint256 newDelay);
     event UpdateMinCowAmt(uint256 amt);
@@ -23,6 +25,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     event SolverPoolBilled(address indexed pool, uint256 amt, uint256 cowAmt, uint256 ethAmt, string reason);
     event AnnounceExit(address indexed pool);
     event Exit(address indexed pool);
+    event UpdateSolverMembership(address indexed pool, address indexed solver, bool isMember);
 
     struct SubPoolData {
         /// The collateral token that pool was initialized with.
@@ -39,6 +42,11 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     /// @dev    Not stored in the SubPoolData because we don't want to load the string
     ///         everytime we read the subpooldata in memory.
     mapping(address => string) public backendUri;
+    /// @notice One to one mappping of solver to a subpool.
+    /// @dev    If a solver already has a subpool of their own, they cannot belong to any other pool.
+    ///         If a solver belongs to some pool, they cannot deploy their own subpool unless they are
+    ///         removed from the solver subpool.
+    mapping(address => address) public solverBelongsTo;
     /// @notice the delay between `announceExit` and `exit`.
     uint256 public exitDelay;
     /// @notice the minimum amount of COW to be bonded.
@@ -69,6 +77,8 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     /// @notice Create a `SubPool` for the user at a deterministic address with salt as `msg.sender`.
     /// @param token  - The token to use as collateral.
     function create(address token, uint256 amt, uint256 cowAmt, string calldata uri) external returns (address) {
+        if (solverBelongsTo[msg.sender] != address(0)) revert SubPoolFactory__SolverHasActiveMembership();
+
         SubPool subpool = new SubPool{salt: bytes32(0)}(msg.sender, COW);
         subpool.initializeCollateralToken(token);
         emit SolverPoolDeployed(msg.sender, address(subpool));
@@ -144,9 +154,42 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         subPoolData[pool] = subpoolData;
     }
 
+    /// @notice Update solver membership.
+    function updateSolverMembership(address solver, bool add) external {
+        address pool = msg.sender;
+        SubPoolData memory subpoolData = subPoolData[pool];
+        if (subpoolData.collateral == address(0)) revert SubPoolFactory__UnknownPool();
+
+        if (add) {
+            // check if solver already has a pool of its own
+            if (subPoolData[poolOf(solver)].collateral != address(0)) {
+                revert SubPoolFactory__SolverHasActiveMembership();
+            }
+            // check if solver has a membership of some other pool
+            if (solverBelongsTo[solver] != address(0)) revert SubPoolFactory__SolverHasActiveMembership();
+            solverBelongsTo[solver] = pool;
+            emit UpdateSolverMembership(pool, solver, true);
+        } else {
+            // check that the solver is member of the given pool
+            if (solverBelongsTo[solver] != pool) revert SubPoolFactory__SolverNotAMember();
+            solverBelongsTo[solver] = address(0);
+            emit UpdateSolverMembership(pool, solver, false);
+        }
+    }
+
+    /// @notice Leave a subpool membership.
+    /// @dev    This is important to prevent DoS and preventing solver from creating their own pool.
+    function leaveSubPool() external {
+        address pool = solverBelongsTo[msg.sender];
+        solverBelongsTo[msg.sender] = address(0);
+        emit UpdateSolverMembership(pool, msg.sender, false);
+    }
+
     /// @notice Determine if the solver can submit solutions.
     function canSolve(address solver) external view returns (bool) {
-        address pool = poolOf(solver);
+        address belongsToPool = solverBelongsTo[solver];
+        address pool = belongsToPool == address(0) ? poolOf(solver) : belongsToPool;
+
         SubPoolData memory subpoolData = subPoolData[pool];
         // check first if the pool exists
         if (subpoolData.collateral == address(0)) revert SubPoolFactory__UnknownPool();

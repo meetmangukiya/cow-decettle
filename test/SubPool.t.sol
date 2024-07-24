@@ -188,5 +188,24 @@ contract SubPoolTest is Test {
         assertEq(COW.balanceOf(anotherOwner), 10 ether, "COW balance not as expected");
     }
 
+    function testUpdateSolverMembership() external {
+        address newSolver = makeAddr("newSolver");
+        address anotherOwner = makeAddr("anotherOwner");
+        pool.addOwner(anotherOwner);
+        address notOwner = makeAddr("notOwner");
+
+        vm.prank(notOwner);
+        vm.expectRevert(Auth.Auth__OnlyOwners.selector);
+        pool.updateSolverMembership(newSolver, true);
+
+        vm.prank(anotherOwner);
+        vm.expectCall(address(factory), abi.encodeCall(factory.updateSolverMembership, (newSolver, true)));
+        pool.updateSolverMembership(newSolver, true);
+
+        vm.prank(anotherOwner);
+        vm.expectCall(address(factory), abi.encodeCall(factory.updateSolverMembership, (newSolver, false)));
+        pool.updateSolverMembership(newSolver, false);
+    }
+
     receive() external payable {}
 }

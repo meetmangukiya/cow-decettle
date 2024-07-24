@@ -18,14 +18,8 @@ contract SubPoolFactoryTest is BaseTest {
     function setUp() public override {
         super.setUp();
 
-        deal(TOKEN_WETH_MAINNET, solver, solverEthAmt);
-        deal(TOKEN_COW_MAINNET, solver, minCowAmt);
-        vm.startPrank(solver);
-        ERC20(TOKEN_WETH_MAINNET).approve(address(factory), solverEthAmt);
-        ERC20(TOKEN_COW_MAINNET).approve(address(factory), minCowAmt);
-        solverPoolAddress = factory.create(TOKEN_WETH_MAINNET, solverEthAmt, minCowAmt, backendUri);
+        solverPoolAddress = _seedAndDeployPool(solver, TOKEN_WETH_MAINNET, solverEthAmt, minCowAmt, 0, backendUri);
         solverPool = SubPool(solverPoolAddress);
-        vm.stopPrank();
     }
 
     function testCreate() external {
@@ -55,6 +49,15 @@ contract SubPoolFactoryTest is BaseTest {
         assertEq(exitTimestamp, 0, "exit timestamp should be initialized to 0");
         assertEq(isExited, false, "pool shouldnt be exited at initialization");
         assertEq(factory.backendUri(solverPoolAddress), backendUri, "solver backend uri not set at initialization");
+
+        // solver with existing memberships cannot create their own pools
+        address anotherSolver = makeAddr("anotherSolver");
+        vm.prank(solver);
+        solverPool.updateSolverMembership(anotherSolver, true);
+
+        vm.prank(anotherSolver);
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__SolverHasActiveMembership.selector);
+        factory.create(TOKEN_WETH_MAINNET, 0, minCowAmt, backendUri);
     }
 
     function testPoolOf() external view {
@@ -228,26 +231,36 @@ contract SubPoolFactoryTest is BaseTest {
     }
 
     function testCanSolve() external {
-        assertEq(factory.canSolve(solver), true, "pool should be a solver");
+        address anotherSolver = makeAddr("anotherSolver");
+        vm.prank(solver);
+        solverPool.updateSolverMembership(anotherSolver, true);
+
+        assertEq(factory.canSolve(solver), true, "pool owner be a solver");
+        assertEq(factory.canSolve(anotherSolver), true, "pool member should be a solver");
 
         vm.deal(solverPoolAddress, 1 ether);
         factory.bill(solverPoolAddress, 0, 0, 1, "pool shouldnt be a solver if there are dues");
-        assertEq(factory.canSolve(solver), false, "pool shouldnt be a solver");
+        assertEq(factory.canSolve(solver), false, "pool owner shouldnt be a solver");
+        assertEq(factory.canSolve(anotherSolver), false, "pool member shouldn't be a solver");
 
         // pay the dues and that should restore solvability
         solverPool.heal{value: 1}();
-        assertEq(factory.canSolve(solver), true, "pool should be a solver again after the pool is healed");
+        assertEq(factory.canSolve(solver), true, "pool owner should be a solver again after the pool is healed");
+        assertEq(factory.canSolve(anotherSolver), true, "pool member should be a solver again after the pool is healed");
 
         // announce exit
         vm.prank(solverPoolAddress);
         factory.announceExit();
-        assertEq(factory.canSolve(solver), false, "announced exited pools shouldnt be a solver");
+        assertEq(factory.canSolve(solver), false, "announced exited pools' owner shouldnt be a solver");
+        assertEq(factory.canSolve(anotherSolver), false, "announced exited pools' members shouldnt be a solver");
 
         // exit pool
         uint256 exitTs = factory.exitTimestamp(solverPoolAddress);
         vm.warp(exitTs);
         vm.prank(solverPoolAddress);
         factory.exitPool();
+        assertEq(factory.canSolve(solver), false, "exited pools' owner shouldnt be a solver");
+        assertEq(factory.canSolve(anotherSolver), false, "exited pools' members shouldnt be a solver");
 
         // uninited pools should revert
         vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
@@ -287,6 +300,39 @@ contract SubPoolFactoryTest is BaseTest {
         solverPool.exit();
         vm.expectRevert(SubPoolFactory.SubPoolFactory__PoolAlreadyExited.selector);
         factory.fastTrackExit(solverPoolAddress, uint88(newExitTs - 100));
+    }
+
+    function testUpdateSolverMembership() external {
+        address notPool = makeAddr("notPool");
+        address newSolver = makeAddr("newSolver");
+
+        // only subpools can call this
+        vm.prank(notPool);
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
+        factory.updateSolverMembership(newSolver, true);
+
+        // can only add a solver that does not already have a pool of its own
+        address anotherSolver = makeAddr("anotherSolver");
+        address anotherSolverPool = _seedAndDeployPool(
+            anotherSolver, TOKEN_WETH_MAINNET, 1 ether, minCowAmt, 0, "https://backend.anothersolver.com"
+        );
+        vm.prank(solver);
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__SolverHasActiveMembership.selector);
+        solverPool.updateSolverMembership(anotherSolver, true);
+
+        // can only add a solver that does not already belong to some other pool
+        address thirdSolver = makeAddr("thirdSolver");
+        vm.prank(anotherSolver);
+        SubPool(anotherSolverPool).updateSolverMembership(thirdSolver, true);
+
+        vm.prank(solver);
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__SolverHasActiveMembership.selector);
+        solverPool.updateSolverMembership(thirdSolver, true);
+
+        // can only remove solver of your own pool
+        vm.prank(solver);
+        vm.expectRevert(SubPoolFactory.SubPoolFactory__SolverNotAMember.selector);
+        solverPool.updateSolverMembership(thirdSolver, false);
     }
 
     receive() external payable {}

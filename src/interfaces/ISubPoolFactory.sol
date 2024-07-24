@@ -8,4 +8,5 @@ interface ISubPoolFactory {
     function exitPool() external;
     function updateBackendUri(string calldata) external;
     function exitTimestamp(address pool) external view returns (uint256);
+    function updateSolverMembership(address solver, bool add) external;
 }
