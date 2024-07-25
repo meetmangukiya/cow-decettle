@@ -96,7 +96,7 @@ contract SubPool is Auth {
         uint256 amt = collateralDue;
         uint256 cowAmt = cowDue;
         uint256 ethAmt = ethDue;
-        if (msg.value < ethAmt) revert SubPool__InsufficientETH();
+        if (msg.value != ethAmt) revert SubPool__InsufficientETH();
         if (amt > 0) {
             collateralDue = 0;
             SafeTransferLib.safeTransferFrom(collateralToken, msg.sender, address(this), amt);

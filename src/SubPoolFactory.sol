@@ -6,6 +6,8 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {SubPool} from "./SubPool.sol";
 import {ISubPoolFactory} from "./interfaces/ISubPoolFactory.sol";
 
+using SafeTransferLib for address;
+
 contract SubPoolFactory is Auth, ISubPoolFactory {
     error SubPoolFactory__InsufficientCollateral();
     error SubPoolFactory__UnknownPool();
@@ -91,8 +93,8 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         backendUri[address(subpool)] = uri;
         emit UpdateBackendUri(address(subpool), uri);
 
-        SafeTransferLib.safeTransferFrom(token, msg.sender, address(subpool), amt);
-        SafeTransferLib.safeTransferFrom(COW, msg.sender, address(subpool), cowAmt);
+        COW.safeTransferFrom(msg.sender, address(subpool), cowAmt);
+        token.safeTransferFrom(msg.sender, address(subpool), amt);
 
         return address(subpool);
     }
