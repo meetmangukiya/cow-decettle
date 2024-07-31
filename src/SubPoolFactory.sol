@@ -44,11 +44,11 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     uint256 public exitDelay;
     address public immutable COW;
 
-    constructor(uint256 exitDelay_, address cow) {
+    constructor(uint256 exitDelay_, address cow, address owner) {
         exitDelay = exitDelay_;
         emit UpdateExitDelay(exitDelay);
         COW = cow;
-        _addOwner(msg.sender);
+        _addOwner(owner);
     }
 
     /// @notice Set the delay between `announceExit` and being able to withdraw funds.
@@ -57,7 +57,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         emit UpdateExitDelay(delay);
     }
 
-    /// @notice Create a `SubPool` for the user at a deterministic address with salt as `msg.sender`.
+    /// @notice Create a `SubPool` for the user at a deterministic address.
     /// @param token  - The token to use as collateral.
     function create(address token, uint256 amt, uint256 cowAmt, string calldata uri) external returns (address) {
         SubPool subpool = new SubPool{salt: bytes32(0)}(msg.sender, COW);
@@ -69,11 +69,6 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         subPoolData[address(subpool)] = SubPoolData({collateral: token, exitTimestamp: 0});
         backendUri[address(subpool)] = uri;
         emit UpdateBackendUri(address(subpool), uri);
-
-        // the pool creator becomes a member of its pool by default so it doesn't require another
-        // manual transaction to set oneself as solver
-        solverBelongsTo[msg.sender] = address(subpool);
-        emit UpdateSolverMembership(address(subpool), msg.sender, true);
 
         COW.safeTransferFrom(msg.sender, address(subpool), cowAmt);
         token.safeTransferFrom(msg.sender, address(subpool), amt);
@@ -92,7 +87,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         uint256 exitTs = subPoolData[pool].exitTimestamp;
         if (exitTs != 0 && block.timestamp >= exitTs) revert SubPoolFactory__CannotBillAfterExitDelay();
 
-        SubPool(pool).bill(amt, cowAmt, ethAmt, msg.sender);
+        SubPool(payable(pool)).bill(amt, cowAmt, ethAmt, msg.sender);
         emit SolverPoolBilled(pool, amt, cowAmt, ethAmt, reason);
     }
 
@@ -165,7 +160,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         }
 
         // cannot solve if there are any pending dues
-        (uint256 amt, uint256 cowAmt, uint256 ethAmt) = SubPool(pool).dues();
+        (uint256 amt, uint256 cowAmt, uint256 ethAmt) = SubPool(payable(pool)).dues();
         return amt == 0 && cowAmt == 0 && ethAmt == 0;
     }
 
@@ -178,8 +173,8 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
 
     /// @notice Read solver's subpool address.
     /// @dev    Only difference from `poolOf` is this checks if the subpool has been initialized.
-    function solverSubPool(address solver) public view returns (address) {
-        address pool = poolOf(solver);
+    function subPoolByCreator(address creator) public view returns (address) {
+        address pool = poolOf(creator);
         SubPoolData memory subpoolData = subPoolData[pool];
         if (subpoolData.collateral == address(0)) revert SubPoolFactory__UnknownPool();
         return pool;

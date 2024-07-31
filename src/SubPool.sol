@@ -48,7 +48,7 @@ contract SubPool is Auth {
         factory.announceExit();
     }
 
-    /// @notice withdraw arbitrary tokens
+    /// @notice withdraw arbitrary tokens; if the pool can be exited, the natie eth balance is also withdrawn
     /// @dev Can only withdraw non cow and non collateral tokens while the pool is active or in exit delay.
     ///      When the pool's exit delay has elapsed it can withdraw any token and ether balance.
     function withdrawTokens(address[] calldata tokens) external auth {
@@ -64,7 +64,8 @@ contract SubPool is Auth {
             }
             uint256 ethBalance = address(this).balance;
             if (ethBalance > 0) {
-                msg.sender.safeTransferETH(address(this).balance);
+                // dont want to block withdrawing other tokens ETH transfer failed
+                msg.sender.call{value: address(this).balance}("");
             }
         } else {
             for (uint256 i = 0; i < tokens.length;) {
@@ -85,16 +86,16 @@ contract SubPool is Auth {
         uint256 cowAmt = cowDue;
         uint256 ethAmt = ethDue;
         if (msg.value != ethAmt) revert SubPool__InsufficientETH();
-        if (amt > 0) {
-            collateralDue = 0;
-            collateralToken.safeTransferFrom(msg.sender, address(this), amt);
-        }
         if (cowAmt > 0) {
             cowDue = 0;
             COW.safeTransferFrom(msg.sender, address(this), cowAmt);
         }
         if (ethAmt > 0) {
             ethDue = 0;
+        }
+        if (amt > 0) {
+            collateralDue = 0;
+            collateralToken.safeTransferFrom(msg.sender, address(this), amt);
         }
     }
 
@@ -132,4 +133,6 @@ contract SubPool is Auth {
         cowAmt = cowDue;
         ethAmt = ethDue;
     }
+
+    receive() external payable {}
 }

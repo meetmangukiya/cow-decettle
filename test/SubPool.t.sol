@@ -27,14 +27,16 @@ contract SubPoolTest is Test {
         vm.label(address(COW), "COW");
         mockToken = new MockToken("MTK", "MTK");
         vm.label(address(mockToken), "MTK");
-        factory = new SubPoolFactory(exitDelay, address(COW));
+        factory = new SubPoolFactory(exitDelay, address(COW), address(this));
 
         deal(address(COW), address(this), minCowAmt);
         deal(address(collateralToken), address(this), collateralAmt);
         collateralToken.approve(address(factory), collateralAmt);
         COW.approve(address(factory), minCowAmt);
 
-        pool = SubPool(factory.create(address(collateralToken), collateralAmt, minCowAmt, "https://backend.solver.com"));
+        pool = SubPool(
+            payable(factory.create(address(collateralToken), collateralAmt, minCowAmt, "https://backend.solver.com"))
+        );
         solverPoolAddress = address(pool);
         vm.deal(solverPoolAddress, ethAmt);
     }

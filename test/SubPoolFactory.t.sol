@@ -20,7 +20,7 @@ contract SubPoolFactoryTest is BaseTest {
         super.setUp();
 
         solverPoolAddress = _seedAndDeployPool(solver, TOKEN_WETH_MAINNET, solverEthAmt, solverCowAmt, 0, backendUri);
-        solverPool = SubPool(solverPoolAddress);
+        solverPool = SubPool(payable(solverPoolAddress));
     }
 
     function testCreate() external {
@@ -37,16 +37,13 @@ contract SubPoolFactoryTest is BaseTest {
         vm.startPrank(user);
         ERC20(TOKEN_WETH_MAINNET).approve(address(factory), 15 ether);
         ERC20(TOKEN_COW_MAINNET).approve(address(factory), solverCowAmt);
-        address userPool = factory.create(TOKEN_WETH_MAINNET, 15 ether, solverCowAmt, backendUri);
+        factory.create(TOKEN_WETH_MAINNET, 15 ether, solverCowAmt, backendUri);
         vm.stopPrank();
 
         (address collateral, uint176 exitTimestamp) = factory.subPoolData(solverPoolAddress);
         assertEq(collateral, TOKEN_WETH_MAINNET, "collateral not as expected");
         assertEq(exitTimestamp, 0, "exit timestamp should be initialized to 0");
         assertEq(factory.backendUri(solverPoolAddress), backendUri, "solver backend uri not set at initialization");
-
-        // pool creator should become a member of its own pool by default
-        assertEq(factory.solverBelongsTo(user), userPool, "pool creator should be a member of its own pool");
     }
 
     function testPoolOf() external view {
@@ -54,12 +51,12 @@ contract SubPoolFactoryTest is BaseTest {
         assertEq(expectedSolverPool, solverPoolAddress, "solver pool address not as expected");
     }
 
-    function testSubPool() external {
-        address expectedSolverPool = factory.solverSubPool(solver);
+    function testSubPoolByCreator() external {
+        address expectedSolverPool = factory.subPoolByCreator(solver);
         assertEq(expectedSolverPool, solverPoolAddress, "solver pool address not as expected");
         address anotherSolver = makeAddr("anotherSolver");
         vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
-        factory.solverSubPool(anotherSolver);
+        factory.subPoolByCreator(anotherSolver);
     }
 
     function testSubPoolData() external {
@@ -238,7 +235,7 @@ contract SubPoolFactoryTest is BaseTest {
         // can only add a solver that does not already belong to some other pool
         address thirdSolver = makeAddr("thirdSolver");
         vm.prank(anotherSolver);
-        SubPool(anotherSolverPool).updateSolverMembership(thirdSolver, true);
+        SubPool(payable(anotherSolverPool)).updateSolverMembership(thirdSolver, true);
 
         vm.prank(solver);
         vm.expectRevert(SubPoolFactory.SubPoolFactory__SolverHasActiveMembership.selector);
