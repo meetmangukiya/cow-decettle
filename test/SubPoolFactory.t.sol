@@ -2,7 +2,7 @@ pragma solidity 0.8.26;
 
 import {SubPoolFactory, Auth, SubPool} from "src/SubPoolFactory.sol";
 import {MockToken} from "./MockToken.sol";
-import {TOKEN_WETH_MAINNET, CHAINLINK_PRICE_FEED_WETH_MAINNET, TOKEN_COW_MAINNET} from "src/constants.sol";
+import {TOKEN_WETH_MAINNET, TOKEN_COW_MAINNET} from "src/constants.sol";
 import {BaseTest} from "./BaseTest.sol";
 import {ERC20} from "solady/tokens/ERC20.sol";
 
@@ -123,7 +123,7 @@ contract SubPoolFactoryTest is BaseTest {
     function testExitTimestamp() external {
         assertEq(factory.exitTimestamp(solverPoolAddress), 0, "pool hasnt exited yet");
 
-        // quit the pool
+        // announce exit for the pool
         vm.prank(solverPoolAddress);
         factory.announceExit();
         uint256 exitTs = block.timestamp + exitDelay;
@@ -132,7 +132,7 @@ contract SubPoolFactoryTest is BaseTest {
 
     function testAnnounceExit() external {
         // addresses not spawned by the factory's create method shouldn't be able to
-        // call quit pool
+        // call announceExit
         vm.prank(notOwner);
         vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
         factory.announceExit();
@@ -146,7 +146,7 @@ contract SubPoolFactoryTest is BaseTest {
             "exit timestamp not set by announce exit"
         );
 
-        // pool cannot quit twice
+        // pool cannot announce exit twice
         vm.prank(solverPoolAddress);
         vm.expectRevert(SubPoolFactory.SubPoolFactory__PoolAlreadyAnnouncedExit.selector);
         factory.announceExit();
