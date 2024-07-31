@@ -67,8 +67,6 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     /// @notice Create a `SubPool` for the user at a deterministic address with salt as `msg.sender`.
     /// @param token  - The token to use as collateral.
     function create(address token, uint256 amt, uint256 cowAmt, string calldata uri) external returns (address) {
-        if (solverBelongsTo[msg.sender] != address(0)) revert SubPoolFactory__SolverHasActiveMembership();
-
         SubPool subpool = new SubPool{salt: bytes32(0)}(msg.sender, COW);
         subpool.initializeCollateralToken(token);
         emit SolverPoolDeployed(msg.sender, address(subpool));
@@ -76,6 +74,11 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         subPoolData[address(subpool)] = SubPoolData({collateral: token, exitTimestamp: 0, hasExited: false});
         backendUri[address(subpool)] = uri;
         emit UpdateBackendUri(address(subpool), uri);
+
+        // the pool creator becomes a member of its pool by default so it doesn't require another
+        // manual transaction to set oneself as solver
+        solverBelongsTo[msg.sender] = address(subpool);
+        emit UpdateSolverMembership(address(subpool), msg.sender, true);
 
         COW.safeTransferFrom(msg.sender, address(subpool), cowAmt);
         token.safeTransferFrom(msg.sender, address(subpool), amt);
@@ -147,10 +150,6 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         if (subpoolData.collateral == address(0)) revert SubPoolFactory__UnknownPool();
 
         if (add) {
-            // check if solver already has a pool of its own
-            if (subPoolData[poolOf(solver)].collateral != address(0)) {
-                revert SubPoolFactory__SolverHasActiveMembership();
-            }
             // check if solver has a membership of some other pool
             if (solverBelongsTo[solver] != address(0)) revert SubPoolFactory__SolverHasActiveMembership();
             solverBelongsTo[solver] = pool;
@@ -173,8 +172,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
 
     /// @notice Determine if the solver can submit solutions.
     function canSolve(address solver) external view returns (bool) {
-        address belongsToPool = solverBelongsTo[solver];
-        address pool = belongsToPool == address(0) ? poolOf(solver) : belongsToPool;
+        address pool = solverBelongsTo[solver];
 
         SubPoolData memory subpoolData = subPoolData[pool];
         // check first if the pool exists

@@ -37,7 +37,7 @@ contract SubPoolFactoryTest is BaseTest {
         vm.startPrank(user);
         ERC20(TOKEN_WETH_MAINNET).approve(address(factory), 15 ether);
         ERC20(TOKEN_COW_MAINNET).approve(address(factory), solverCowAmt);
-        factory.create(TOKEN_WETH_MAINNET, 15 ether, solverCowAmt, backendUri);
+        address userPool = factory.create(TOKEN_WETH_MAINNET, 15 ether, solverCowAmt, backendUri);
         vm.stopPrank();
 
         (address collateral, uint88 exitTimestamp, bool isExited) = factory.subPoolData(solverPoolAddress);
@@ -46,14 +46,8 @@ contract SubPoolFactoryTest is BaseTest {
         assertEq(isExited, false, "pool shouldnt be exited at initialization");
         assertEq(factory.backendUri(solverPoolAddress), backendUri, "solver backend uri not set at initialization");
 
-        // solver with existing memberships cannot create their own pools
-        address anotherSolver = makeAddr("anotherSolver");
-        vm.prank(solver);
-        solverPool.updateSolverMembership(anotherSolver, true);
-
-        vm.prank(anotherSolver);
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__SolverHasActiveMembership.selector);
-        factory.create(TOKEN_WETH_MAINNET, 0, solverCowAmt, backendUri);
+        // pool creator should become a member of its own pool by default
+        assertEq(factory.solverBelongsTo(user), userPool, "pool creator should be a member of its own pool");
     }
 
     function testPoolOf() external view {
