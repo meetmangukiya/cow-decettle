@@ -51,7 +51,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         _addOwner(msg.sender);
     }
 
-    /// @notice Set the delay between `announceExit` and `exitPool`.
+    /// @notice Set the delay between `announceExit` and being able to withdraw funds.
     function setExitDelay(uint32 delay) external auth {
         exitDelay = delay;
         emit UpdateExitDelay(delay);

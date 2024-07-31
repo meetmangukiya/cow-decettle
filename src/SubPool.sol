@@ -98,7 +98,7 @@ contract SubPool is Auth {
         }
     }
 
-    /// @notice Bill some fines.
+    /// @notice Bill a subpool.
     /// @dev    The check to not allow billing after exit delay is done in factory.
     function bill(uint256 amt, uint256 cowAmt, uint256 ethAmt, address to) external onlyFactory {
         if (amt > 0) {
