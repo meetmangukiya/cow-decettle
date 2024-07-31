@@ -57,20 +57,20 @@ contract SubPool is Auth {
 
         if (exitElapsed) {
             for (uint256 i = 0; i < tokens.length;) {
-                SafeTransferLib.safeTransfer(tokens[i], msg.sender, ERC20(tokens[i]).balanceOf(address(this)));
+                tokens[i].safeTransfer(msg.sender, ERC20(tokens[i]).balanceOf(address(this)));
                 unchecked {
                     ++i;
                 }
             }
             uint256 ethBalance = address(this).balance;
             if (ethBalance > 0) {
-                SafeTransferLib.safeTransferETH(msg.sender, address(this).balance);
+                msg.sender.safeTransferETH(address(this).balance);
             }
         } else {
             for (uint256 i = 0; i < tokens.length;) {
                 address token = tokens[i];
                 if (token == COW || token == collateralToken) revert SubPool__InvalidWithdraw();
-                SafeTransferLib.safeTransfer(token, msg.sender, ERC20(token).balanceOf(address(this)));
+                token.safeTransfer(msg.sender, ERC20(token).balanceOf(address(this)));
                 unchecked {
                     ++i;
                 }
@@ -87,11 +87,11 @@ contract SubPool is Auth {
         if (msg.value != ethAmt) revert SubPool__InsufficientETH();
         if (amt > 0) {
             collateralDue = 0;
-            SafeTransferLib.safeTransferFrom(collateralToken, msg.sender, address(this), amt);
+            collateralToken.safeTransferFrom(msg.sender, address(this), amt);
         }
         if (cowAmt > 0) {
             cowDue = 0;
-            SafeTransferLib.safeTransferFrom(COW, msg.sender, address(this), cowAmt);
+            COW.safeTransferFrom(msg.sender, address(this), cowAmt);
         }
         if (ethAmt > 0) {
             ethDue = 0;
@@ -102,15 +102,15 @@ contract SubPool is Auth {
     /// @dev    The check to not allow billing after exit delay is done in factory.
     function bill(uint256 amt, uint256 cowAmt, uint256 ethAmt, address to) external onlyFactory {
         if (amt > 0) {
-            SafeTransferLib.safeTransfer(collateralToken, to, amt);
+            collateralToken.safeTransfer(to, amt);
             collateralDue += amt;
         }
         if (cowAmt > 0) {
-            SafeTransferLib.safeTransfer(COW, to, cowAmt);
+            COW.safeTransfer(to, cowAmt);
             cowDue += cowAmt;
         }
         if (ethAmt > 0) {
-            SafeTransferLib.safeTransferETH(to, ethAmt);
+            to.safeTransferETH(ethAmt);
             ethDue += ethAmt;
         }
     }
