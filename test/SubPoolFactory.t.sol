@@ -40,10 +40,9 @@ contract SubPoolFactoryTest is BaseTest {
         address userPool = factory.create(TOKEN_WETH_MAINNET, 15 ether, solverCowAmt, backendUri);
         vm.stopPrank();
 
-        (address collateral, uint88 exitTimestamp, bool isExited) = factory.subPoolData(solverPoolAddress);
+        (address collateral, uint176 exitTimestamp) = factory.subPoolData(solverPoolAddress);
         assertEq(collateral, TOKEN_WETH_MAINNET, "collateral not as expected");
         assertEq(exitTimestamp, 0, "exit timestamp should be initialized to 0");
-        assertEq(isExited, false, "pool shouldnt be exited at initialization");
         assertEq(factory.backendUri(solverPoolAddress), backendUri, "solver backend uri not set at initialization");
 
         // pool creator should become a member of its own pool by default
@@ -64,24 +63,14 @@ contract SubPoolFactoryTest is BaseTest {
     }
 
     function testSubPoolData() external {
-        (address collateral, uint88 exitTs, bool hasExited) = factory.subPoolData(solverPoolAddress);
+        (address collateral, uint176 exitTs) = factory.subPoolData(solverPoolAddress);
         assertEq(collateral, TOKEN_WETH_MAINNET, "collateral not as expected");
         assertEq(exitTs, 0, "exit timestamp not as expected");
-        assertEq(hasExited, false, "hasExited not as expected");
 
         vm.prank(solver);
         solverPool.announceExit();
-        (, exitTs, hasExited) = factory.subPoolData(solverPoolAddress);
+        (, exitTs) = factory.subPoolData(solverPoolAddress);
         assertEq(exitTs, block.timestamp + exitDelay, "exit timestamp not as expected");
-        assertEq(hasExited, false, "hasExited not as expected");
-
-        uint256 beforeExitTs = exitTs;
-        vm.warp(exitTs);
-        vm.prank(solver);
-        solverPool.exit();
-        (, exitTs, hasExited) = factory.subPoolData(solverPoolAddress);
-        assertEq(exitTs, beforeExitTs, "exit timestamp not as expected");
-        assertEq(hasExited, true, "hasExited not as expected");
     }
 
     function testBill() external {
@@ -102,9 +91,8 @@ contract SubPoolFactoryTest is BaseTest {
         assertEq(weth.balanceOf(address(this)) - wethBalanceBefore, wethFined, "weth not fined as expected");
         assertEq(cow.balanceOf(address(this)) - cowBalanceBefore, cowFined, "cow not fined as expected");
         assertEq(address(this).balance - ethBalanceBefore, ethFined, "eth not fined as expected");
-        (, uint88 exitTimestamp, bool hasExited) = factory.subPoolData(solverPoolAddress);
+        (, uint176 exitTimestamp) = factory.subPoolData(solverPoolAddress);
         assertEq(exitTimestamp, 0, "pool shouldn't have announced exit yet");
-        assertEq(hasExited, false, "pool shouldn't be frozen");
 
         // bill should work in exit period
         vm.prank(solver);
@@ -116,7 +104,7 @@ contract SubPoolFactoryTest is BaseTest {
 
         // bill shouldn't work after the exit delay has elapsed
         ethBalanceBefore = address(this).balance;
-        (, exitTimestamp,) = factory.subPoolData(solverPoolAddress);
+        (, exitTimestamp) = factory.subPoolData(solverPoolAddress);
         vm.warp(exitTimestamp);
         vm.expectRevert(SubPoolFactory.SubPoolFactory__CannotBillAfterExitDelay.selector);
         factory.bill(solverPoolAddress, 0, 0, 1, "billing after exit delay");
@@ -140,12 +128,6 @@ contract SubPoolFactoryTest is BaseTest {
         factory.announceExit();
         uint256 exitTs = block.timestamp + exitDelay;
         assertEq(factory.exitTimestamp(solverPoolAddress), exitTs, "exit timestamp not as expected");
-
-        // exit the pool, verify the exit timestamp doesnt change even on exit
-        vm.warp(exitTs);
-        vm.prank(solverPoolAddress);
-        factory.exitPool();
-        assertEq(factory.exitTimestamp(solverPoolAddress), exitTs, "exit timestamp not as expected");
     }
 
     function testAnnounceExit() external {
@@ -168,38 +150,6 @@ contract SubPoolFactoryTest is BaseTest {
         vm.prank(solverPoolAddress);
         vm.expectRevert(SubPoolFactory.SubPoolFactory__PoolAlreadyAnnouncedExit.selector);
         factory.announceExit();
-    }
-
-    function testExitPool() external {
-        // addresses not spawned by the factory's create method shouldn't be able to
-        // call exit pool
-        vm.prank(notOwner);
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
-        factory.exitPool();
-
-        // try to exit without quit
-        vm.prank(solverPoolAddress);
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__PoolHasNotAnnouncedExitYet.selector);
-        factory.exitPool();
-
-        // exit time not elapsed
-        vm.startPrank(solverPoolAddress);
-        factory.announceExit();
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__ExitDelayNotElapsed.selector);
-        factory.exitPool();
-        vm.stopPrank();
-
-        uint256 exitTs = factory.exitTimestamp(solverPoolAddress);
-        vm.warp(exitTs);
-        vm.prank(solverPoolAddress);
-        factory.exitPool();
-        (,, bool hasExited) = factory.subPoolData(solverPoolAddress);
-        assertEq(hasExited, true, "pool not marked exited");
-
-        // try to exit again, should fail
-        vm.prank(solverPoolAddress);
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__PoolAlreadyExited.selector);
-        factory.exitPool();
     }
 
     function testUpdateBackendUri() external {
@@ -234,14 +184,6 @@ contract SubPoolFactoryTest is BaseTest {
         assertEq(factory.canSolve(solver), false, "announced exited pools' owner shouldnt be a solver");
         assertEq(factory.canSolve(anotherSolver), false, "announced exited pools' members shouldnt be a solver");
 
-        // exit pool
-        uint256 exitTs = factory.exitTimestamp(solverPoolAddress);
-        vm.warp(exitTs);
-        vm.prank(solverPoolAddress);
-        factory.exitPool();
-        assertEq(factory.canSolve(solver), false, "exited pools' owner shouldnt be a solver");
-        assertEq(factory.canSolve(anotherSolver), false, "exited pools' members shouldnt be a solver");
-
         // uninited pools should revert
         vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
         factory.canSolve(makeAddr("someUninitedpool"));
@@ -273,13 +215,6 @@ contract SubPoolFactoryTest is BaseTest {
         uint256 newExitTs = exitTs - 100;
         factory.fastTrackExit(solverPoolAddress, uint88(newExitTs));
         assertEq(factory.exitTimestamp(solverPoolAddress), newExitTs, "new exit timestamp not as expected");
-
-        // already exited pools' exit timestamp cannot be overwrote
-        vm.warp(newExitTs);
-        vm.prank(solver);
-        solverPool.exit();
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__PoolAlreadyExited.selector);
-        factory.fastTrackExit(solverPoolAddress, uint88(newExitTs - 100));
     }
 
     function testUpdateSolverMembership() external {

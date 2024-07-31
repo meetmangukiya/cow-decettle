@@ -91,41 +91,6 @@ contract SubPoolTest is Test {
         pool.announceExit();
     }
 
-    function testExit() external {
-        uint256 tokenAmt = 10 ether;
-        uint256 cowAmt = 100 ether;
-        uint256 ethAmt_ = 1 ether;
-
-        deal(address(collateralToken), address(pool), tokenAmt);
-        deal(address(COW), address(pool), cowAmt);
-        vm.deal(solverPoolAddress, ethAmt_);
-
-        SubPool(solverPoolAddress).announceExit();
-        uint256 exitTs = factory.exitTimestamp(solverPoolAddress);
-        vm.warp(exitTs);
-
-        address user = makeAddr("user");
-
-        // any user can call exit, the assets will go to the owner
-        uint256 collBalanceBefore = collateralToken.balanceOf(address(this));
-        uint256 cowBalanceBefore = COW.balanceOf(address(this));
-        uint256 ethBalanceBefore = address(this).balance;
-
-        vm.prank(user);
-        vm.expectRevert(Auth.Auth__OnlyOwners.selector);
-        pool.exit();
-
-        pool.exit();
-
-        uint256 collBalanceAfter = collateralToken.balanceOf(address(this));
-        uint256 cowBalanceAfter = COW.balanceOf(address(this));
-        uint256 ethBalanceAfter = address(this).balance;
-
-        assertEq(collBalanceAfter - collBalanceBefore, tokenAmt, "exit didnt transfer the pool assets to the owner");
-        assertEq(cowBalanceAfter - cowBalanceBefore, cowAmt, "exit didnt transfer the pool assets to the owner");
-        assertEq(ethBalanceAfter - ethBalanceBefore, ethAmt_, "exit didnt tranfer the pool assets to the owner");
-    }
-
     function testBill() external {
         deal(address(collateralToken), address(pool), 1 ether);
         deal(address(COW), address(pool), 10 ether);

@@ -13,7 +13,6 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     error SubPoolFactory__ExitDelayNotElapsed();
     error SubPoolFactory__PoolHasNotAnnouncedExitYet();
     error SubPoolFactory__PoolAlreadyAnnouncedExit();
-    error SubPoolFactory__PoolAlreadyExited();
     error SubPoolFactory__InvalidFastTrackExit();
     error SubPoolFactory__CannotBillAfterExitDelay();
     error SubPoolFactory__SolverHasActiveMembership();
@@ -31,9 +30,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         /// The collateral token that pool was initialized with.
         address collateral;
         /// The timestamp at which the pool can exit.
-        uint88 exitTimestamp;
-        /// Whether the pool has exited.
-        bool hasExited;
+        uint176 exitTimestamp;
     }
 
     /// @notice Individual subpool data
@@ -71,7 +68,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         subpool.initializeCollateralToken(token);
         emit SolverPoolDeployed(msg.sender, address(subpool));
 
-        subPoolData[address(subpool)] = SubPoolData({collateral: token, exitTimestamp: 0, hasExited: false});
+        subPoolData[address(subpool)] = SubPoolData({collateral: token, exitTimestamp: 0});
         backendUri[address(subpool)] = uri;
         emit UpdateBackendUri(address(subpool), uri);
 
@@ -111,18 +108,6 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         emit AnnounceExit(pool);
     }
 
-    /// @notice Exit the pool.
-    function exitPool() external {
-        address pool = msg.sender;
-        SubPoolData memory subpoolData = subPoolData[pool];
-        if (subpoolData.collateral == address(0)) revert SubPoolFactory__UnknownPool();
-        if (subpoolData.exitTimestamp == 0) revert SubPoolFactory__PoolHasNotAnnouncedExitYet();
-        if (subpoolData.exitTimestamp > block.timestamp) revert SubPoolFactory__ExitDelayNotElapsed();
-        if (subpoolData.hasExited) revert SubPoolFactory__PoolAlreadyExited();
-        subPoolData[pool].hasExited = true;
-        emit Exit(pool);
-    }
-
     /// @notice Update solver's backend uri.
     function updateBackendUri(string calldata uri) external {
         address pool = msg.sender;
@@ -137,7 +122,6 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         SubPoolData memory subpoolData = subPoolData[pool];
         if (subpoolData.collateral == address(0)) revert SubPoolFactory__UnknownPool();
         if (subpoolData.exitTimestamp == 0) revert SubPoolFactory__PoolHasNotAnnouncedExitYet();
-        if (subpoolData.hasExited) revert SubPoolFactory__PoolAlreadyExited();
         if (newExitTimestamp > subpoolData.exitTimestamp) revert SubPoolFactory__InvalidFastTrackExit();
         subpoolData.exitTimestamp = newExitTimestamp;
         subPoolData[pool] = subpoolData;

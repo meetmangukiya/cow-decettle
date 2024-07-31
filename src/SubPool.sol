@@ -48,18 +48,6 @@ contract SubPool is Auth {
         factory.announceExit();
     }
 
-    /// @notice Execute the exit after the exit delay has elapsed.
-    function exit() external auth {
-        uint256 collateralBalance = ERC20(collateralToken).balanceOf(address(this));
-        uint256 cowBalance = ERC20(COW).balanceOf(address(this));
-        collateralToken.safeTransfer(msg.sender, collateralBalance);
-        COW.safeTransfer(msg.sender, cowBalance);
-        msg.sender.safeTransferETH(address(this).balance);
-
-        // exit delay elapsed and other checks are made in the factory
-        factory.exitPool();
-    }
-
     /// @notice withdraw arbitrary tokens
     /// @dev Can only withdraw non cow and non collateral tokens while the pool is active or in exit delay.
     ///      When the pool's exit delay has elapsed it can withdraw any token and ether balance.
