@@ -11,6 +11,7 @@ contract SubPoolFactoryTest is BaseTest {
     address solver = makeAddr("solver");
     address solverPoolAddress;
     uint256 solverEthAmt = 20 ether;
+    uint256 solverCowAmt = 100_000 ether;
     SubPool solverPool;
     address notOwner = makeAddr("notOwner");
     string backendUri = "https://backend.solver.com";
@@ -18,30 +19,25 @@ contract SubPoolFactoryTest is BaseTest {
     function setUp() public override {
         super.setUp();
 
-        solverPoolAddress = _seedAndDeployPool(solver, TOKEN_WETH_MAINNET, solverEthAmt, minCowAmt, 0, backendUri);
+        solverPoolAddress = _seedAndDeployPool(solver, TOKEN_WETH_MAINNET, solverEthAmt, solverCowAmt, 0, backendUri);
         solverPool = SubPool(solverPoolAddress);
     }
 
     function testCreate() external {
         address user = makeAddr("user");
 
-        // if < min cow, revert
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__InsufficientCollateral.selector);
-        vm.prank(user);
-        factory.create(TOKEN_WETH_MAINNET, 1, minCowAmt - 1, backendUri);
-
         // if amts are correct, but user doesnt have the tokens, revert
         vm.expectRevert();
         vm.prank(user);
-        factory.create(TOKEN_WETH_MAINNET, 15 ether, minCowAmt, backendUri);
+        factory.create(TOKEN_WETH_MAINNET, 15 ether, solverCowAmt, backendUri);
 
         // give tokens to the user
         deal(TOKEN_WETH_MAINNET, user, 15 ether);
-        deal(TOKEN_COW_MAINNET, user, minCowAmt);
+        deal(TOKEN_COW_MAINNET, user, solverCowAmt);
         vm.startPrank(user);
         ERC20(TOKEN_WETH_MAINNET).approve(address(factory), 15 ether);
-        ERC20(TOKEN_COW_MAINNET).approve(address(factory), minCowAmt);
-        factory.create(TOKEN_WETH_MAINNET, 15 ether, minCowAmt, backendUri);
+        ERC20(TOKEN_COW_MAINNET).approve(address(factory), solverCowAmt);
+        factory.create(TOKEN_WETH_MAINNET, 15 ether, solverCowAmt, backendUri);
         vm.stopPrank();
 
         (address collateral, uint88 exitTimestamp, bool isExited) = factory.subPoolData(solverPoolAddress);
@@ -57,7 +53,7 @@ contract SubPoolFactoryTest is BaseTest {
 
         vm.prank(anotherSolver);
         vm.expectRevert(SubPoolFactory.SubPoolFactory__SolverHasActiveMembership.selector);
-        factory.create(TOKEN_WETH_MAINNET, 0, minCowAmt, backendUri);
+        factory.create(TOKEN_WETH_MAINNET, 0, solverCowAmt, backendUri);
     }
 
     function testPoolOf() external view {
@@ -140,16 +136,6 @@ contract SubPoolFactoryTest is BaseTest {
         factory.setExitDelay(1);
         uint256 exitDelay = factory.exitDelay();
         assertEq(exitDelay, 1, "exit delay not set as expected");
-    }
-
-    function testSetMinCowAmt() external {
-        vm.prank(notOwner);
-        vm.expectRevert(Auth.Auth__OnlyOwners.selector);
-        factory.setMinCowAmt(1);
-
-        factory.setMinCowAmt(1);
-        uint256 minCowAmt = factory.minCowAmt();
-        assertEq(minCowAmt, 1, "min cow amt not set as expected");
     }
 
     function testExitTimestamp() external {
@@ -314,7 +300,7 @@ contract SubPoolFactoryTest is BaseTest {
         // can only add a solver that does not already have a pool of its own
         address anotherSolver = makeAddr("anotherSolver");
         address anotherSolverPool = _seedAndDeployPool(
-            anotherSolver, TOKEN_WETH_MAINNET, 1 ether, minCowAmt, 0, "https://backend.anothersolver.com"
+            anotherSolver, TOKEN_WETH_MAINNET, 1 ether, solverCowAmt, 0, "https://backend.anothersolver.com"
         );
         vm.prank(solver);
         vm.expectRevert(SubPoolFactory.SubPoolFactory__SolverHasActiveMembership.selector);

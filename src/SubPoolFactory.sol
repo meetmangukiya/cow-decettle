@@ -9,7 +9,6 @@ import {ISubPoolFactory} from "./interfaces/ISubPoolFactory.sol";
 using SafeTransferLib for address;
 
 contract SubPoolFactory is Auth, ISubPoolFactory {
-    error SubPoolFactory__InsufficientCollateral();
     error SubPoolFactory__UnknownPool();
     error SubPoolFactory__ExitDelayNotElapsed();
     error SubPoolFactory__PoolHasNotAnnouncedExitYet();
@@ -21,7 +20,6 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     error SubPoolFactory__SolverNotAMember();
 
     event UpdateExitDelay(uint256 newDelay);
-    event UpdateMinCowAmt(uint256 amt);
     event UpdateBackendUri(address indexed pool, string uri);
     event SolverPoolDeployed(address indexed solver, address indexed pool);
     event SolverPoolBilled(address indexed pool, uint256 amt, uint256 cowAmt, uint256 ethAmt, string reason);
@@ -51,15 +49,11 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
     mapping(address => address) public solverBelongsTo;
     /// @notice the delay between `announceExit` and `exit`.
     uint256 public exitDelay;
-    /// @notice the minimum amount of COW to be bonded.
-    uint256 public minCowAmt;
     address public immutable COW;
 
-    constructor(uint256 exitDelay_, uint256 minCowAmt_, address cow) {
+    constructor(uint256 exitDelay_, address cow) {
         exitDelay = exitDelay_;
-        minCowAmt = minCowAmt_;
         emit UpdateExitDelay(exitDelay);
-        emit UpdateMinCowAmt(minCowAmt);
         COW = cow;
         _addOwner(msg.sender);
     }
@@ -70,12 +64,6 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         emit UpdateExitDelay(delay);
     }
 
-    /// @notice Set the min cow amount.
-    function setMinCowAmt(uint224 amt) external auth {
-        minCowAmt = amt;
-        emit UpdateMinCowAmt(amt);
-    }
-
     /// @notice Create a `SubPool` for the user at a deterministic address with salt as `msg.sender`.
     /// @param token  - The token to use as collateral.
     function create(address token, uint256 amt, uint256 cowAmt, string calldata uri) external returns (address) {
@@ -84,10 +72,6 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         SubPool subpool = new SubPool{salt: bytes32(0)}(msg.sender, COW);
         subpool.initializeCollateralToken(token);
         emit SolverPoolDeployed(msg.sender, address(subpool));
-
-        if (cowAmt < minCowAmt) {
-            revert SubPoolFactory__InsufficientCollateral();
-        }
 
         subPoolData[address(subpool)] = SubPoolData({collateral: token, exitTimestamp: 0, hasExited: false});
         backendUri[address(subpool)] = uri;

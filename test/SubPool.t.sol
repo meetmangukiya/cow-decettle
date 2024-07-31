@@ -27,7 +27,7 @@ contract SubPoolTest is Test {
         vm.label(address(COW), "COW");
         mockToken = new MockToken("MTK", "MTK");
         vm.label(address(mockToken), "MTK");
-        factory = new SubPoolFactory(exitDelay, minCowAmt, address(COW));
+        factory = new SubPoolFactory(exitDelay, address(COW));
 
         deal(address(COW), address(this), minCowAmt);
         deal(address(collateralToken), address(this), collateralAmt);
