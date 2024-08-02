@@ -171,14 +171,6 @@ contract SubPoolFactoryTest is BaseTest {
 
         assertEq(factory.canSolve(anotherSolver), true, "pool member should be a solver");
 
-        vm.deal(solverPoolAddress, 1 ether);
-        factory.bill(solverPoolAddress, 0, 0, 1, "pool shouldnt be a solver if there are dues");
-        assertEq(factory.canSolve(anotherSolver), false, "pool member shouldn't be a solver");
-
-        // pay the dues and that should restore solvability
-        solverPool.heal{value: 1}();
-        assertEq(factory.canSolve(anotherSolver), true, "pool member should be a solver again after the pool is healed");
-
         // announce exit
         vm.prank(solverPoolAddress);
         factory.announceExit();

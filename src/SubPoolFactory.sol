@@ -149,7 +149,8 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         emit UpdateSolverMembership(pool, msg.sender, false);
     }
 
-    /// @notice Determine if the solver can submit solutions.
+    /// @notice Determine if the solver can submit solutions, checks that a pool exists and that
+    ///         it hasn't exited yet.
     function canSolve(address solver) external view returns (bool) {
         address pool = solverBelongsTo[solver];
 
@@ -162,9 +163,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
             return false;
         }
 
-        // cannot solve if there are any pending dues
-        (uint256 amt, uint256 cowAmt, uint256 ethAmt) = SubPool(payable(pool)).dues();
-        return amt == 0 && cowAmt == 0 && ethAmt == 0;
+        return true;
     }
 
     /// @notice Read subpool's exit timestamp.

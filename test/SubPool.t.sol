@@ -41,52 +41,6 @@ contract SubPoolTest is Test {
         vm.deal(solverPoolAddress, ethAmt);
     }
 
-    function testDues() external {
-        vm.deal(solverPoolAddress, ethAmtDue);
-
-        factory.bill(solverPoolAddress, amtDue, cowAmtDue, ethAmtDue, "billed amount should reflect in dues");
-
-        (uint256 amt, uint256 cowAmt, uint256 ethAmt_) = pool.dues();
-        assertEq(amt, amtDue, "token amt due is incorrect");
-        assertEq(cowAmt, cowAmtDue, "cow token amt due is incorrect");
-        assertEq(ethAmt_, ethAmtDue, "eth amt due is incorrect");
-    }
-
-    function testHeal() external {
-        // create some dues
-        factory.bill(solverPoolAddress, amtDue, cowAmtDue, ethAmtDue, "create some dues for the test");
-
-        // anyone can heal
-        address user = makeAddr("user");
-        assertEq(pool.isOwner(user), false, "user is a owner");
-
-        uint256 collateralBalanceBefore = collateralToken.balanceOf(address(pool));
-        uint256 cowBalanceBefore = COW.balanceOf(address(pool));
-        uint256 ethBalanceBefore = solverPoolAddress.balance;
-
-        deal(address(collateralToken), user, amtDue);
-        deal(address(COW), user, cowAmtDue);
-        vm.deal(user, ethAmtDue);
-
-        vm.startPrank(user);
-        collateralToken.approve(address(pool), amtDue);
-        COW.approve(address(pool), cowAmtDue);
-        pool.heal{value: ethAmtDue}();
-        vm.stopPrank();
-
-        assertEq(
-            collateralToken.balanceOf(address(pool)),
-            collateralBalanceBefore + amtDue,
-            "heal did not transfer the tokens"
-        );
-        assertEq(COW.balanceOf(address(pool)), cowBalanceBefore + cowAmtDue, "heal did not transfer the tokens");
-        assertEq(solverPoolAddress.balance, ethBalanceBefore + ethAmtDue, "heal did not transfer enough eth");
-        (uint256 amtDue_, uint256 cowAmtDue_, uint256 ethAmtDue_) = pool.dues();
-        assertEq(amtDue_, 0, "collateral dues should be 0 after healing");
-        assertEq(cowAmtDue_, 0, "cow dues should be 0 after healing");
-        assertEq(ethAmtDue_, 0, "eth dues should be 0 after healing");
-    }
-
     function testAnnounceExit() external {
         // pool should notify the factory
         vm.expectCall(address(factory), abi.encodeCall(ISubPoolFactory.announceExit, ()));

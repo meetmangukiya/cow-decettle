@@ -19,10 +19,6 @@ contract SubPool is Auth {
     address public immutable COW;
     ISubPoolFactory public immutable factory;
 
-    uint256 collateralDue;
-    uint256 cowDue;
-    uint256 ethDue;
-
     modifier onlyFactory() {
         if (msg.sender != address(factory)) {
             revert SubPool__OnlyFactory();
@@ -78,40 +74,17 @@ contract SubPool is Auth {
         }
     }
 
-    /// @notice Pull required number of tokens from the sender to push the pool
-    ///         back to the collateralization requirements.
-    function heal() external payable {
-        uint256 amt = collateralDue;
-        uint256 cowAmt = cowDue;
-        uint256 ethAmt = ethDue;
-        if (msg.value != ethAmt) revert SubPool__InsufficientETH();
-        if (cowAmt > 0) {
-            cowDue = 0;
-            COW.safeTransferFrom(msg.sender, address(this), cowAmt);
-        }
-        if (ethAmt > 0) {
-            ethDue = 0;
-        }
-        if (amt > 0) {
-            collateralDue = 0;
-            collateralToken.safeTransferFrom(msg.sender, address(this), amt);
-        }
-    }
-
     /// @notice Bill a subpool.
     /// @dev    The check to not allow billing after exit delay is done in factory.
     function bill(uint256 amt, uint256 cowAmt, uint256 ethAmt, address to) external onlyFactory {
         if (amt > 0) {
             collateralToken.safeTransfer(to, amt);
-            collateralDue += amt;
         }
         if (cowAmt > 0) {
             COW.safeTransfer(to, cowAmt);
-            cowDue += cowAmt;
         }
         if (ethAmt > 0) {
             to.safeTransferETH(ethAmt);
-            ethDue += ethAmt;
         }
     }
 
@@ -123,14 +96,6 @@ contract SubPool is Auth {
     /// @notice Update solver membership.
     function updateSolverMembership(address solver, bool add) external auth {
         factory.updateSolverMembership(solver, add);
-    }
-
-    /// @notice Determine the amount of tokens(collateral, COW, ETH) that are due to put the pool
-    ///         above collateralization requirements.
-    function dues() external view returns (uint256 amt, uint256 cowAmt, uint256 ethAmt) {
-        amt = collateralDue;
-        cowAmt = cowDue;
-        ethAmt = ethDue;
     }
 
     receive() external payable {}
