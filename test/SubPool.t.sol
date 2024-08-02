@@ -1,4 +1,4 @@
-pragma solidity 0.8.26;
+pragma solidity ^0.8;
 
 import {Test} from "forge-std/Test.sol";
 import {SubPool, ISubPoolFactory, Auth} from "src/SubPool.sol";

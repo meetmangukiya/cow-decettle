@@ -1,4 +1,4 @@
-pragma solidity 0.8.26;
+pragma solidity ^0.8;
 
 import {SubPoolFactory, Auth, SubPool} from "src/SubPoolFactory.sol";
 import {MockToken} from "./MockToken.sol";
@@ -10,8 +10,7 @@ contract SubPoolFactoryTest is BaseTest {
     MockToken lst = new MockToken("LST", "ether");
     address solver = makeAddr("solver");
     address payable solverPoolAddress;
-    uint256 solverEthAmt = 20 ether;
-    uint256 solverCowAmt = 100_000 ether;
+    uint solverTokenAmt = 20 ether;
     SubPool solverPool;
     address notOwner = makeAddr("notOwner");
     string backendUri = "https://backend.solver.com";
@@ -19,7 +18,7 @@ contract SubPoolFactoryTest is BaseTest {
     function setUp() public override {
         super.setUp();
 
-        solverPoolAddress = _seedAndDeployPool(solver, TOKEN_WETH_MAINNET, solverEthAmt, solverCowAmt, 0, backendUri);
+        solverPoolAddress = _seedAndDeployPool(solver, TOKEN_WETH_MAINNET, solverTokenAmt, solverTokenAmt, 0, backendUri);
         solverPool = SubPool(solverPoolAddress);
     }
 
@@ -29,15 +28,15 @@ contract SubPoolFactoryTest is BaseTest {
         // if amts are correct, but user doesnt have the tokens, revert
         vm.expectRevert();
         vm.prank(user);
-        factory.create(TOKEN_WETH_MAINNET, 15 ether, solverCowAmt, backendUri);
+        factory.create(TOKEN_WETH_MAINNET, solverTokenAmt, solverTokenAmt, backendUri);
 
         // give tokens to the user
-        deal(TOKEN_WETH_MAINNET, user, 15 ether);
-        deal(TOKEN_COW_MAINNET, user, solverCowAmt);
+        deal(TOKEN_WETH_MAINNET, user, solverTokenAmt);
+        deal(TOKEN_COW_MAINNET, user, solverTokenAmt);
         vm.startPrank(user);
-        ERC20(TOKEN_WETH_MAINNET).approve(address(factory), 15 ether);
-        ERC20(TOKEN_COW_MAINNET).approve(address(factory), solverCowAmt);
-        factory.create(TOKEN_WETH_MAINNET, 15 ether, solverCowAmt, backendUri);
+        ERC20(TOKEN_WETH_MAINNET).approve(address(factory), solverTokenAmt);
+        ERC20(TOKEN_COW_MAINNET).approve(address(factory), solverTokenAmt);
+        factory.create(TOKEN_WETH_MAINNET, solverTokenAmt, solverTokenAmt, backendUri);
         vm.stopPrank();
 
         (address collateral, uint176 exitTimestamp) = factory.subPoolData(solverPoolAddress);
@@ -229,7 +228,7 @@ contract SubPoolFactoryTest is BaseTest {
         // can only add a solver that does not already have a pool of its own
         address anotherCreator = makeAddr("anotherCreator");
         address payable anotherCreatorPool = _seedAndDeployPool(
-            anotherCreator, TOKEN_WETH_MAINNET, 1 ether, solverCowAmt, 0, "https://backend.anothersolver.com"
+            anotherCreator, TOKEN_WETH_MAINNET, 1 ether, solverTokenAmt, 0, "https://backend.anothersolver.com"
         );
         address anotherSolver = makeAddr("anotherSolver");
         vm.prank(anotherCreator);
