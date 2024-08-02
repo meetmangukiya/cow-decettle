@@ -59,7 +59,10 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
 
     /// @notice Create a `SubPool` for the user at a deterministic address.
     /// @param token  - The token to use as collateral.
-    function create(address token, uint256 amt, uint256 cowAmt, string calldata uri) external returns (address) {
+    function create(address token, uint256 amt, uint256 cowAmt, string calldata uri)
+        external
+        returns (address payable)
+    {
         SubPool subpool = new SubPool{salt: bytes32(0)}(msg.sender, COW);
         // initialization needs to happen after deployment to prevent collateralToken being part of the initcode
         // to prevent multiple pools per solver, initcode needs to be static for a given solver
@@ -73,7 +76,7 @@ contract SubPoolFactory is Auth, ISubPoolFactory {
         COW.safeTransferFrom(msg.sender, address(subpool), cowAmt);
         token.safeTransferFrom(msg.sender, address(subpool), amt);
 
-        return address(subpool);
+        return payable(address(subpool));
     }
 
     /// @notice Bill a subpool

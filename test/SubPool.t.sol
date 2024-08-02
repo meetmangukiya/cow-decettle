@@ -81,6 +81,10 @@ contract SubPoolTest is Test {
         );
         assertEq(COW.balanceOf(address(pool)), cowBalanceBefore + cowAmtDue, "heal did not transfer the tokens");
         assertEq(solverPoolAddress.balance, ethBalanceBefore + ethAmtDue, "heal did not transfer enough eth");
+        (uint256 amtDue_, uint256 cowAmtDue_, uint256 ethAmtDue_) = pool.dues();
+        assertEq(amtDue_, 0, "collateral dues should be 0 after healing");
+        assertEq(cowAmtDue_, 0, "cow dues should be 0 after healing");
+        assertEq(ethAmtDue_, 0, "eth dues should be 0 after healing");
     }
 
     function testAnnounceExit() external {
@@ -114,7 +118,8 @@ contract SubPoolTest is Test {
         deal(address(collateralToken), address(pool), 1 ether);
         deal(address(COW), address(pool), 10 ether);
         deal(address(mockToken), address(pool), 1 ether);
-        vm.deal(address(pool), 0.1 ether);
+        uint256 ethDealt = 0.1 ether;
+        vm.deal(address(pool), ethDealt);
 
         // shouldnt be able to withdraw collateral token or COW
         address[] memory tks = new address[](1);
@@ -139,16 +144,27 @@ contract SubPoolTest is Test {
         vm.prank(anotherOwner);
         pool.withdrawTokens(tks);
         assertEq(mockToken.balanceOf(anotherOwner), 1 ether, "MTK balance not as expected");
+        assertEq(address(pool).balance, ethDealt, "ETH shouldn't be withdrawn before exit has elapsed");
 
         // after exit it should be able to withdraw any tokens.
         pool.announceExit();
         uint256 exitTs = factory.exitTimestamp(address(pool));
+
+        // cannot withdraw cow and collateral before exitTs
+        vm.warp(exitTs - 1);
+        tks[0] = address(COW);
+        vm.expectRevert(SubPool.SubPool__InvalidWithdraw.selector);
+        pool.withdrawTokens(tks);
+        tks[0] = address(collateralToken);
+        vm.expectRevert(SubPool.SubPool__InvalidWithdraw.selector);
+        pool.withdrawTokens(tks);
+
         vm.warp(exitTs);
         tks[0] = address(collateralToken);
         vm.prank(anotherOwner);
         pool.withdrawTokens(tks);
         assertEq(collateralToken.balanceOf(anotherOwner), 1 ether, "collateral token balance not as expected");
-        assertEq(anotherOwner.balance, 0.1 ether, "ether balance not as expected");
+        assertEq(anotherOwner.balance, ethDealt, "ether balance not as expected");
         tks[0] = address(COW);
         vm.prank(anotherOwner);
         pool.withdrawTokens(tks);
@@ -172,6 +188,29 @@ contract SubPoolTest is Test {
         vm.prank(anotherOwner);
         vm.expectCall(address(factory), abi.encodeCall(factory.updateSolverMembership, (newSolver, false)));
         pool.updateSolverMembership(newSolver, false);
+    }
+
+    function testReceiveEth() external {
+        uint256 prevBalance = address(pool).balance;
+        (bool success,) = address(pool).call{value: 1 ether}("");
+        require(success);
+        assertEq(address(pool).balance, prevBalance + 1 ether);
+    }
+
+    function testUpdateBackendUri() external {
+        string memory newUri = "https://backend2.solver.com";
+
+        address notOwner = makeAddr("notOwner");
+        vm.prank(notOwner);
+        vm.expectRevert(Auth.Auth__OnlyOwners.selector);
+        pool.updateBackendUri(newUri);
+
+        address anotherOwner = makeAddr("anotherOwner");
+        pool.addOwner(anotherOwner);
+
+        vm.prank(anotherOwner);
+        vm.expectCall(address(factory), abi.encodeCall(factory.updateBackendUri, (newUri)));
+        pool.updateBackendUri(newUri);
     }
 
     receive() external payable {}

@@ -64,8 +64,7 @@ contract SubPool is Auth {
             }
             uint256 ethBalance = address(this).balance;
             if (ethBalance > 0) {
-                // dont want to block withdrawing other tokens ETH transfer failed
-                msg.sender.call{value: address(this).balance}("");
+                msg.sender.safeTransferETH(address(this).balance);
             }
         } else {
             for (uint256 i = 0; i < tokens.length;) {
