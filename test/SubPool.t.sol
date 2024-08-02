@@ -4,6 +4,7 @@ import {Test} from "forge-std/Test.sol";
 import {SubPool, ISubPoolFactory, Auth} from "src/SubPool.sol";
 import {MockToken, ERC20} from "./MockToken.sol";
 import {SubPoolFactory} from "src/SubPoolFactory.sol";
+import {TOKEN_NATIVE_ETH} from "src/constants.sol";
 
 contract SubPoolTest is Test {
     SubPool pool;
@@ -104,12 +105,15 @@ contract SubPoolTest is Test {
         pool.announceExit();
         uint256 exitTs = factory.exitTimestamp(address(pool));
 
-        // cannot withdraw cow and collateral before exitTs
+        // cannot withdraw cow, eth or collateral before exitTs
         vm.warp(exitTs - 1);
         tks[0] = address(COW);
         vm.expectRevert(SubPool.SubPool__InvalidWithdraw.selector);
         pool.withdrawTokens(tks);
         tks[0] = address(collateralToken);
+        vm.expectRevert(SubPool.SubPool__InvalidWithdraw.selector);
+        pool.withdrawTokens(tks);
+        tks[0] = TOKEN_NATIVE_ETH;
         vm.expectRevert(SubPool.SubPool__InvalidWithdraw.selector);
         pool.withdrawTokens(tks);
 
@@ -118,11 +122,15 @@ contract SubPoolTest is Test {
         vm.prank(anotherOwner);
         pool.withdrawTokens(tks);
         assertEq(collateralToken.balanceOf(anotherOwner), 1 ether, "collateral token balance not as expected");
-        assertEq(anotherOwner.balance, ethDealt, "ether balance not as expected");
         tks[0] = address(COW);
         vm.prank(anotherOwner);
         pool.withdrawTokens(tks);
         assertEq(COW.balanceOf(anotherOwner), 10 ether, "COW balance not as expected");
+        assertEq(anotherOwner.balance, 0, "another owner balance should be 0");
+        tks[0] = TOKEN_NATIVE_ETH;
+        vm.prank(anotherOwner);
+        pool.withdrawTokens(tks);
+        assertEq(anotherOwner.balance, 0.1 ether, "ether balance not as expected");
     }
 
     function testUpdateSolverMembership() external {

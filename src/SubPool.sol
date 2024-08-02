@@ -5,6 +5,7 @@ import {Auth} from "./Auth.sol";
 import {ISubPoolFactory} from "./interfaces/ISubPoolFactory.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ERC20} from "solady/tokens/ERC20.sol";
+import {TOKEN_NATIVE_ETH} from "./constants.sol";
 
 using SafeTransferLib for address;
 
@@ -53,19 +54,22 @@ contract SubPool is Auth {
 
         if (exitElapsed) {
             for (uint256 i = 0; i < tokens.length;) {
-                tokens[i].safeTransfer(msg.sender, ERC20(tokens[i]).balanceOf(address(this)));
+                if (tokens[i] == TOKEN_NATIVE_ETH) {
+                    msg.sender.safeTransferETH(address(this).balance);
+                } else {
+                    tokens[i].safeTransfer(msg.sender, ERC20(tokens[i]).balanceOf(address(this)));
+                }
+
                 unchecked {
                     ++i;
                 }
             }
-            uint256 ethBalance = address(this).balance;
-            if (ethBalance > 0) {
-                msg.sender.safeTransferETH(address(this).balance);
-            }
         } else {
             for (uint256 i = 0; i < tokens.length;) {
                 address token = tokens[i];
-                if (token == COW || token == collateralToken) revert SubPool__InvalidWithdraw();
+                if (token == COW || token == collateralToken || token == TOKEN_NATIVE_ETH) {
+                    revert SubPool__InvalidWithdraw();
+                }
                 token.safeTransfer(msg.sender, ERC20(token).balanceOf(address(this)));
                 unchecked {
                     ++i;
