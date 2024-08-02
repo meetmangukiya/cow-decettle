@@ -76,13 +76,17 @@ contract SubPoolTest is Test {
         uint256 ethDealt = 0.1 ether;
         vm.deal(address(pool), ethDealt);
 
-        // shouldnt be able to withdraw collateral token or COW
+        // shouldnt be able to withdraw collateral token, ETH or COW
         address[] memory tks = new address[](1);
         tks[0] = address(collateralToken);
         vm.expectRevert(SubPool.SubPool__InvalidWithdraw.selector);
         pool.withdrawTokens(tks);
 
         tks[0] = address(COW);
+        vm.expectRevert(SubPool.SubPool__InvalidWithdraw.selector);
+        pool.withdrawTokens(tks);
+
+        tks[0] = TOKEN_NATIVE_ETH;
         vm.expectRevert(SubPool.SubPool__InvalidWithdraw.selector);
         pool.withdrawTokens(tks);
 
