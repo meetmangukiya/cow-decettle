@@ -10,7 +10,7 @@ contract SubPoolFactoryTest is BaseTest {
     MockToken lst = new MockToken("LST", "ether");
     address solver = makeAddr("solver");
     address payable solverPoolAddress;
-    uint solverTokenAmt = 20 ether;
+    uint256 solverTokenAmt = 20 ether;
     SubPool solverPool;
     address notOwner = makeAddr("notOwner");
     string backendUri = "https://backend.solver.com";
@@ -18,7 +18,8 @@ contract SubPoolFactoryTest is BaseTest {
     function setUp() public override {
         super.setUp();
 
-        solverPoolAddress = _seedAndDeployPool(solver, TOKEN_WETH_MAINNET, solverTokenAmt, solverTokenAmt, 0, backendUri);
+        solverPoolAddress =
+            _seedAndDeployPool(solver, TOKEN_WETH_MAINNET, solverTokenAmt, solverTokenAmt, 0, backendUri);
         solverPool = SubPool(solverPoolAddress);
     }
 
