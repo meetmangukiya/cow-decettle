@@ -5,7 +5,8 @@ import {Auth} from "./Auth.sol";
 import {ISubPoolFactory} from "./interfaces/ISubPoolFactory.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ERC20} from "solady/tokens/ERC20.sol";
-import {TOKEN_NATIVE_ETH} from "./constants.sol";
+import {TOKEN_NATIVE_ETH, SNAPSHOT_DELEGATE_CONTRACT} from "./constants.sol";
+import {IDelegateRegistry} from "./interfaces/IDelegateRegistry.sol";
 
 using SafeTransferLib for address;
 
@@ -100,6 +101,14 @@ contract SubPool is Auth {
     /// @notice Update solver membership.
     function updateSolverMembership(address solver, bool add) external auth {
         factory.updateSolverMembership(solver, add);
+    }
+
+    /// @notice Update snapshot delegate for all spaces.
+    /// @param id       - The snapshot space ID. bytes32(0) will set the given delegate for all spaces.
+    /// @param delegate - The delegate address to set for particular space id.
+    /// @dev ref: https://web.archive.org/web/20240803084830/https://docs.snapshot.org/user-guides/delegation#delegate-page
+    function updateSnapshotDelegate(bytes32 id, address delegate) external auth {
+        IDelegateRegistry(SNAPSHOT_DELEGATE_CONTRACT).setDelegate(id, delegate);
     }
 
     receive() external payable {}

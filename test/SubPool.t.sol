@@ -4,7 +4,8 @@ import {Test} from "forge-std/Test.sol";
 import {SubPool, ISubPoolFactory, Auth} from "src/SubPool.sol";
 import {MockToken, ERC20} from "./MockToken.sol";
 import {SubPoolFactory} from "src/SubPoolFactory.sol";
-import {TOKEN_NATIVE_ETH} from "src/constants.sol";
+import {TOKEN_NATIVE_ETH, SNAPSHOT_DELEGATE_CONTRACT} from "src/constants.sol";
+import {IDelegateRegistry} from "src/interfaces/IDelegateRegistry.sol";
 
 contract SubPoolTest is Test {
     SubPool pool;
@@ -177,6 +178,25 @@ contract SubPoolTest is Test {
         vm.prank(anotherOwner);
         vm.expectCall(address(factory), abi.encodeCall(factory.updateBackendUri, (newUri)));
         pool.updateBackendUri(newUri);
+    }
+
+    function testUpdateSnapshotDelegate() external {
+        bytes32 randomId = keccak256("randomId");
+        address randomDelegate = makeAddr("randomDelegate");
+
+        address notOwner = makeAddr("notOwner");
+        vm.prank(notOwner);
+        vm.expectRevert(Auth.Auth__OnlyOwners.selector);
+        pool.updateSnapshotDelegate(randomId, randomDelegate);
+
+        address anotherOwner = makeAddr("anotherOwner");
+        pool.addOwner(anotherOwner);
+
+        vm.prank(anotherOwner);
+        vm.expectCall(
+            SNAPSHOT_DELEGATE_CONTRACT, abi.encodeCall(IDelegateRegistry.setDelegate, (randomId, randomDelegate))
+        );
+        pool.updateSnapshotDelegate(randomId, randomDelegate);
     }
 
     receive() external payable {}
