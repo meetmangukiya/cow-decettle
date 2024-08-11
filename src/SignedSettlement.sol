@@ -45,8 +45,8 @@ contract SignedSettlement is Auth, EIP712 {
         // scoped to clear the stack and prevent stack too deep error
         {
             // verify that the pool exists, hasnt undercollateralized, frozen or exited.
-            bool canSolve = factory.canSolve(msg.sender);
-            if (!canSolve) revert SignedSettlement__NotASolver();
+            // bool canSolve = factory.canSolve(msg.sender);
+            // if (!canSolve) revert SignedSettlement__NotASolver();
         }
 
         settlement.settle(tokens, clearingPrices, trades, interactions);

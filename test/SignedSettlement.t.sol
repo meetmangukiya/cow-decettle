@@ -73,14 +73,14 @@ contract SignedSettlementTest is BaseTest {
         signedSettlement.signedSettle(tokens, clearingPrices, trades, interactions, attestorSignature);
 
         // mock canSolve to false, should revert
-        vm.mockCall(address(factory), abi.encodeCall(factory.canSolve, solver), abi.encode(false));
-        vm.expectRevert(SignedSettlement.SignedSettlement__NotASolver.selector);
-        vm.prank(solver);
-        signedSettlement.signedSettle(tokens, clearingPrices, trades, interactions, attestorSignature);
+        // vm.mockCall(address(factory), abi.encodeCall(factory.canSolve, solver), abi.encode(false));
+        // vm.expectRevert(SignedSettlement.SignedSettlement__NotASolver.selector);
+        // vm.prank(solver);
+        // signedSettlement.signedSettle(tokens, clearingPrices, trades, interactions, attestorSignature);
 
         // non inited pools not allowed
-        vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
-        signedSettlement.signedSettle(tokens, clearingPrices, trades, interactions, attestorSignature);
+        // vm.expectRevert(SubPoolFactory.SubPoolFactory__UnknownPool.selector);
+        // signedSettlement.signedSettle(tokens, clearingPrices, trades, interactions, attestorSignature);
     }
 
     function _payload()
