@@ -24,6 +24,16 @@ library LibSignedSettlementProxy {
     {
         return LibSignedSettlement.hashInteractions(interactions, hashingRegionStart);
     }
+
+    function readDeadlineAndSignature(
+        address[] calldata tokens,
+        uint256[] calldata clearingPrices,
+        GPv2Trade.Data[] calldata trades,
+        GPv2Interaction.Data[][3] calldata interactions
+    ) external pure returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256 lastByte) {
+        (deadline, r, s, v, lastByte) =
+            LibSignedSettlement.readDeadlineAndSignature(tokens, clearingPrices, trades, interactions);
+    }
 }
 
 contract LibSignedSettlementTest is Test {
@@ -103,5 +113,29 @@ contract LibSignedSettlementTest is Test {
             0x6983ed0bbaae9f0b4a129ed5bebe89f329b3ec0d76076bff630c3fd8f52b7540,
             "settle data hash not as expected"
         );
+    }
+
+    function testReadDeadlineAndSignature(
+        address[] calldata tokens,
+        uint256[] calldata prices,
+        GPv2Trade.Data[] calldata trades,
+        GPv2Interaction.Data[][3] calldata interactions,
+        uint256 deadline,
+        uint256 r,
+        uint256 s,
+        uint8 v
+    ) external {
+        bytes memory cd = abi.encodeWithSelector(
+            LibSignedSettlementProxy.readDeadlineAndSignature.selector, tokens, prices, trades, interactions
+        );
+        bytes memory cdWithParams = abi.encodePacked(cd, deadline, r, s, v);
+        (bool success, bytes memory data) = address(LibSignedSettlementProxy).call(cdWithParams);
+        require(success, "readDeadlineAndSignature call failed");
+        (uint256 readDeadline, uint256 readR, uint256 readS, uint256 readV) =
+            abi.decode(data, (uint256, uint256, uint256, uint256));
+        assertEq(readDeadline, deadline, "read deadline not as expected");
+        assertEq(readR, r, "read r not as expected");
+        assertEq(readS, s, "read s not as expected");
+        assertEq(readV, v, "read v not as expected");
     }
 }

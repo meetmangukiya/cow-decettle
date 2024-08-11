@@ -1,9 +1,11 @@
-pragma solidity ^0.8;
+pragma solidity 0.8.26;
 
 import {GPv2Trade, IERC20} from "cowprotocol/libraries/GPv2Trade.sol";
 import {GPv2Interaction} from "cowprotocol/libraries/GPv2Interaction.sol";
 
 library LibSignedSettlement {
+    error LibSignedSettlement__InvalidDeadline();
+
     bytes32 internal constant TRADE_DATA_TYPE_HASH = keccak256(
         "GPv2TradeData(uint256 sellTokenIndex,uint256 buyTokenIndex,address receiver,uint256 sellAmount,uint256 buyAmount,uint32 validTo,bytes32 appData,uint256 feeAmount,uint256 flags,uint256 executedAmount,bytes signature)"
     );
@@ -149,5 +151,61 @@ library LibSignedSettlement {
             }
         }
         return hashingRegionStart;
+    }
+
+    function transformToSubsetSimple() internal pure returns (bytes memory) {}
+
+    /// @dev Deadline and signature is encoded at the end of the calldata. It is not just used directly
+    ///      as a parameter to the function because that'd lead to the deadline getting
+    ///      encoded inplace and messing up all the offets which'd mean we cannot directly
+    ///      copy the calldata as-is for the call to the actual settlement contract.
+    ///
+    ///      Instead of reading the last 32 bytes directly with `calldataload(sub(calldatasize(), 32))`
+    ///      we determine the expected byteoffset to read based on the last post interaction. Acts as a
+    ///      a validation that a deadline was infact encoded at the end of calldata and not accidentally
+    ///      reading a word from the last interaction's encoded data.
+    function readDeadlineAndSignature(
+        address[] calldata,
+        uint256[] calldata,
+        GPv2Trade.Data[] calldata,
+        GPv2Interaction.Data[][3] calldata interactions
+    ) internal pure returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256 lastByte) {
+        {
+            uint256 lenPostInteractions = interactions[2].length;
+            if (lenPostInteractions > 0) {
+                GPv2Interaction.Data calldata lastInteraction = interactions[2][lenPostInteractions - 1];
+                uint256 offset;
+                assembly ("memory-safe") {
+                    offset := lastInteraction
+                }
+                uint256 cdlen = lastInteraction.callData.length;
+                uint256 cdWords = (cdlen % 32 == 0 ? cdlen / 32 : (cdlen / 32) + 1);
+                lastByte = offset
+                    + (
+                        1 // target
+                            + 1 // value
+                            + 1 // callData offset
+                            + 1 // callData length
+                                // n words for callData
+                            + cdWords
+                    ) * 32;
+            } else {
+                GPv2Interaction.Data[] calldata postInteractions = interactions[2];
+                assembly ("memory-safe") {
+                    lastByte := postInteractions.offset
+                }
+            }
+
+            if (lastByte != msg.data.length - 97) {
+                revert LibSignedSettlement__InvalidDeadline();
+            }
+
+            assembly ("memory-safe") {
+                deadline := calldataload(lastByte)
+                r := calldataload(add(lastByte, 32))
+                s := calldataload(add(lastByte, 64))
+                v := and(calldataload(add(lastByte, 65)), 0xff)
+            }
+        }
     }
 }
