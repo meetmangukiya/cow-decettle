@@ -1,4 +1,4 @@
-pragma solidity 0.8.26;
+pragma solidity ^0.8;
 
 import {BaseTest} from "./BaseTest.sol";
 import {Auth} from "src/Auth.sol";
@@ -22,6 +22,7 @@ contract SignedSettlementTest is BaseTest {
     address solver = makeAddr("solver");
     address solverPoolAddress;
     uint256 solverEthAmt = 20 ether;
+    uint256 cowAmt = 20 ether;
     string backendUri = "https://backend.solver.com";
 
     function setUp() public override {
@@ -29,11 +30,11 @@ contract SignedSettlementTest is BaseTest {
 
         // init a solver
         deal(TOKEN_WETH_MAINNET, solver, solverEthAmt);
-        deal(TOKEN_COW_MAINNET, solver, minCowAmt);
+        deal(TOKEN_COW_MAINNET, solver, cowAmt);
         vm.startPrank(solver);
         ERC20(TOKEN_WETH_MAINNET).approve(address(factory), solverEthAmt);
-        ERC20(TOKEN_COW_MAINNET).approve(address(factory), minCowAmt);
-        solverPoolAddress = factory.create(TOKEN_WETH_MAINNET, solverEthAmt, minCowAmt, backendUri);
+        ERC20(TOKEN_COW_MAINNET).approve(address(factory), cowAmt);
+        solverPoolAddress = factory.create(TOKEN_WETH_MAINNET, solverEthAmt, cowAmt, backendUri);
         vm.stopPrank();
 
         GPv2AllowListAuthentication authenticator = GPv2AllowListAuthentication(address(settlement.authenticator()));

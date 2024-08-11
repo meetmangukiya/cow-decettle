@@ -1,4 +1,4 @@
-pragma solidity 0.8.26;
+pragma solidity ^0.8;
 
 import {GPv2Trade, IERC20} from "cowprotocol/libraries/GPv2Trade.sol";
 import {GPv2Interaction} from "cowprotocol/libraries/GPv2Interaction.sol";

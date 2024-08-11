@@ -1,4 +1,4 @@
-pragma solidity 0.8.26;
+pragma solidity ^0.8;
 
 import {Auth} from "./Auth.sol";
 import {GPv2Trade} from "cowprotocol/libraries/GPv2Trade.sol";
