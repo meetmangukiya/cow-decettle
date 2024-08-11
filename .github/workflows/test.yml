@@ -37,7 +37,7 @@ jobs:
 
       - name: snapshot sync check
         run: |
-          forge snapshot -vvv --fork-url https://eth.llamarpc.com --fork-block-number 19640875
+          forge snapshot -vvv --fork-url https://eth.llamarpc.com --fork-block-number 19640875 --check
 
       - name: Run Forge tests
         run: |
