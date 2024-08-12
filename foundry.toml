@@ -9,6 +9,6 @@ remappings = [
   'cowprotocol/=lib/contracts/src/contracts/'
 ]
 
-[fuzz]
-max_test_rejects = 10000000
+# [fuzz]
+# max_test_rejects = 10000000
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
