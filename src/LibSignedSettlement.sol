@@ -229,7 +229,7 @@ library LibSignedSettlement {
             // |  dataSlices + 0x40 | first intra interaction's offset in memory. this is where we start copying data from |
             // |  dataSlices + 0x60 | number of bytes to copy to get the intra-interactions subset                         |
             // |  dataSlices + 0x80 | first post interaction's offset in memory. this is where we start copying data from  |
-            // |  dataSlices + 0x20 | number of bytes to copy to get the post-interactions subset                          |
+            // |  dataSlices + 0xa0 | number of bytes to copy to get the post-interactions subset                          |
             // +--------------------+--------------------------------------------------------------------------------------+
             uint256 dataSlices;
             assembly ("memory-safe") {
