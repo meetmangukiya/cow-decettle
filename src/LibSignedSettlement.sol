@@ -9,6 +9,8 @@ library LibSignedSettlement {
     error LibSignedSettlement__InvalidExtraParamsFullySigned();
     error LibSignedSettlement__InvalidExtraParamsPartiallySigned();
 
+    /// @dev Computes and returns the calldata range that was appended to the ABI
+    ///      encoded args. It also returns the last byte number of the ABI encoded args.
     function readExtraBytes(
         address[] calldata,
         uint256[] calldata,
@@ -17,6 +19,7 @@ library LibSignedSettlement {
     ) internal pure returns (bytes calldata remainderBytes, uint256 lastByte) {
         {
             uint256 lenPostInteractions = interactions[2].length;
+            // if post interactions is not empty, compute the last byte of the last interaction
             if (lenPostInteractions > 0) {
                 GPv2Interaction.Data calldata lastInteraction = interactions[2][lenPostInteractions - 1];
                 uint256 offset;
@@ -34,13 +37,16 @@ library LibSignedSettlement {
                                 // n words for callData
                             + cdWords
                     ) * 32;
-            } else {
+            }
+            // if post interactions is empty, that is the last byte
+            else {
                 GPv2Interaction.Data[] calldata postInteractions = interactions[2];
                 assembly ("memory-safe") {
                     lastByte := postInteractions.offset
                 }
             }
 
+            // define the extra bytes calldata range
             assembly ("memory-safe") {
                 remainderBytes.offset := lastByte
                 remainderBytes.length := sub(calldatasize(), lastByte)
@@ -53,7 +59,10 @@ library LibSignedSettlement {
     ///      encoded inplace and messing up all the offets which'd mean we cannot directly
     ///      copy the calldata as-is for the call to the actual settlement contract.
     ///
-    ///      Instead of reading the last 32 bytes directly with `calldataload(sub(calldatasize(), 32))`
+    ///      Encoding for the appended data is expected to be `abi.encodePacked(deadline, r, s, v)`.
+    ///      `v` is assumed to be uint8, while all others will encode to 32 byte words.
+    ///
+    ///      Instead of reading the last 97 bytes directly with `calldataload`
     ///      we determine the expected byteoffset to read based on the last post interaction. Acts as a
     ///      a validation that a deadline was infact encoded at the end of calldata and not accidentally
     ///      reading a word from the last interaction's encoded data.
@@ -80,8 +89,19 @@ library LibSignedSettlement {
         }
     }
 
-    error A(uint256, uint256);
-
+    /// @dev Deadline, signature and offsets are encoded at the end of the calldata. It is not just used directly
+    ///      as a parameter to the function because that'd lead to the deadline getting
+    ///      encoded inplace and messing up all the offets which'd mean we cannot directly
+    ///      copy the calldata as-is for the call to the actual settlement contract.
+    ///
+    ///      Encoding for the appended data is expected to be `abi.encodePacked(deadline, r, s, v, offsets)`.
+    ///      `v` is assumed to be uint8, while all others will encode to full 32 byte word.
+    ///      `offsets` is assumed to be `uint[3]`.
+    ///
+    ///      Instead of reading the last 97 bytes directly with `calldataload`
+    ///      we determine the expected byteoffset to read based on the last post interaction. Acts as a
+    ///      a validation that a deadline was infact encoded at the end of calldata and not accidentally
+    ///      reading a word from the last interaction's encoded data.
     function readExtraParamsPartiallySigned(
         address[] calldata tokens,
         uint256[] calldata clearingPrices,
@@ -97,7 +117,6 @@ library LibSignedSettlement {
             (extraBytes, lastByte) = readExtraBytes(tokens, clearingPrices, trades, interactions);
 
             if (lastByte != msg.data.length - 193) {
-                revert A(lastByte, msg.data.length - 193);
                 revert LibSignedSettlement__InvalidExtraParamsPartiallySigned();
             }
 
@@ -109,6 +128,7 @@ library LibSignedSettlement {
                 offsets := add(lastByte, 0x61)
             }
 
+            // validate that the subset size is <= interactions length
             if (
                 offsets[0] > interactions[0].length || offsets[1] > interactions[1].length
                     || offsets[2] > interactions[2].length
@@ -118,6 +138,12 @@ library LibSignedSettlement {
         }
     }
 
+    /// @dev Reads params appended at the end, computes the digest for the fully signed message
+    ///      and returns the memory slice where the calldata is encoded for the `GPv2Settlement.settle`
+    ///      call.
+    ///
+    ///      The digest is assumed to be keccak256 hash of the following encoded data:
+    ///      `abi.encodePacked(abi.encode(tokens, clearingPrices, trades, interactions), abi.encode(deadline, solver))`
     function getParamsDigestAndCalldataFullySigned(
         address[] calldata tokens,
         uint256[] calldata clearingPrices,
@@ -162,6 +188,12 @@ library LibSignedSettlement {
         }
     }
 
+    /// @dev Reads params appended at the end, computes the digest for the partially signed message
+    ///      and returns the memory slice where the calldata is encoded for the `GPv2Settlement.settle`
+    ///      call.
+    ///
+    ///      The digest is assumed to be keccak256 hash of the following encoded data:
+    ///      `abi.encodePacked(abi.encode(tokens, clearingPrices, trades, interactions), abi.encode(deadline, solver))`
     function getParamsDigestAndCalldataPartiallySigned(
         address[] calldata tokens,
         uint256[] calldata clearingPrices,
@@ -188,28 +220,27 @@ library LibSignedSettlement {
             assembly {
                 offsets := add(lastByte, 0x61)
             }
-            uint256 dataSlices;
 
+            // the memory range to be copied for pre/intra/post interaction arrays' subset
+            // starting at `dataSlices`
+            // +--------------------+--------------------------------------------------------------------------------------+
+            // |  dataSlices        | first pre interaction's offset in memory. this is where we start copying data from   |
+            // |  dataSlices + 0x20 | number of bytes to copy to get the pre-interactions subset                           |
+            // |  dataSlices + 0x40 | first intra interaction's offset in memory. this is where we start copying data from |
+            // |  dataSlices + 0x60 | number of bytes to copy to get the intra-interactions subset                         |
+            // |  dataSlices + 0x80 | first post interaction's offset in memory. this is where we start copying data from  |
+            // |  dataSlices + 0x20 | number of bytes to copy to get the post-interactions subset                          |
+            // +--------------------+--------------------------------------------------------------------------------------+
+            uint256 dataSlices;
             assembly ("memory-safe") {
                 dataSlices := mload(0x40)
                 mstore(0x40, add(dataSlices, 0xc0))
-                pop(staticcall(0, caller(), 0, 0, 0, 0))
             }
 
+            // compute the memory ranges to copy to get the subset of interactions
             storeSubsetOffets(interactions[0], dataSlices, offsets[0]);
             storeSubsetOffets(interactions[1], dataSlices + 0x40, offsets[1]);
             storeSubsetOffets(interactions[2], dataSlices + 0x80, offsets[2]);
-            // uint lastInteractionsByte;
-            // {
-            //     GPv2Interaction.Data[] calldata postInteractions = interactions[2];
-            //     if (postInteractions.length == 0) {
-            //         assembly ("memory-safe") {
-            //             lastInteractionsByte := postInteractions.offset
-            //         }
-            //     } else {
-            //         lastInteractionsByte = getLastByteInteraction(postInteractions[postInteractions.length - 1]);
-            //     }
-            // }
 
             assembly ("memory-safe") {
                 let freePtr := mload(0x40)
@@ -219,27 +250,30 @@ library LibSignedSettlement {
                 let dataStart := add(freePtr, 0x20)
 
                 let nBytesToCopy := sub(interactions, 0x04)
-                // call upto trades' last byte
+                // copy upto trades' last byte
                 calldatacopy(dataStart, 0x04, nBytesToCopy)
 
                 let interactionsStart := add(dataStart, nBytesToCopy)
                 {
+                    // keeps track of last byte written
                     let lastWrittenByte := interactionsStart
 
+                    /// @dev copy offsets[i] number of interactions into memory and adjust the interaction array length
+                    ///      and offsets in-place to get an ABI-compliant result of partially encoded settle call params.
                     function copyInteractionsSubset(
                         relativeOffset, offsets_, interactionsStart_, lastWrittenByte_, interactions_, dataSlices_
                     ) -> newLastWrittenByte {
                         let nSubset := calldataload(add(offsets_, relativeOffset))
                         let iOffset := sub(lastWrittenByte_, interactionsStart_)
 
-                        // pre interactions offset is fixed
+                        // store the interaction offset
                         mstore(add(interactionsStart_, relativeOffset), iOffset)
 
                         // store pre interaction subset length
                         mstore(lastWrittenByte_, nSubset)
                         lastWrittenByte_ := add(lastWrittenByte_, 0x20)
 
-                        // copy the pre interaction offsets
+                        // copy the interaction offsets
                         let nInteractions :=
                             calldataload(add(interactions_, calldataload(add(interactions_, relativeOffset))))
                         let firstInteractionOffset :=
@@ -253,17 +287,17 @@ library LibSignedSettlement {
                             lastWrittenByte_ := add(lastWrittenByte_, 0x20)
                         }
 
-                        // copy the pre interactions subset
+                        // copy the interactions subset
                         let interactionBytesStart := mload(add(dataSlices_, mul(relativeOffset, 2)))
                         let nInteractionBytes := mload(add(add(dataSlices_, mul(relativeOffset, 2)), 0x20))
                         mstore(0x00, interactionBytesStart)
                         mstore(0x20, nInteractionBytes)
-                        pop(staticcall(0, 0x01, 0x00, 0x40, 0x00, 0x00))
                         calldatacopy(lastWrittenByte_, interactionBytesStart, nInteractionBytes)
                         lastWrittenByte_ := add(lastWrittenByte_, nInteractionBytes)
                         newLastWrittenByte := lastWrittenByte_
                     }
 
+                    // copy the interaction subsets
                     lastWrittenByte := add(lastWrittenByte, 0x60)
                     lastWrittenByte :=
                         copyInteractionsSubset(0x00, offsets, interactionsStart, lastWrittenByte, interactions, dataSlices)
@@ -272,105 +306,23 @@ library LibSignedSettlement {
                     lastWrittenByte :=
                         copyInteractionsSubset(0x40, offsets, interactionsStart, lastWrittenByte, interactions, dataSlices)
 
-                    // {
-                    //     let nSubset := calldataload(offsets)
-                    //
-                    //     // pre interactions offset is fixed
-                    //     mstore(interactionsStart, 0x60)
-                    //
-                    //     // store pre interaction subset length
-                    //     mstore(add(interactionsStart, 0x60), nSubset)
-                    //     lastWrittenByte := add(interactionsStart, 0x80)
-                    //     let interactions_ := interactions
-                    //
-                    //     // copy the pre interaction offsets
-                    //     let nInteractions := calldataload(add(interactions_, calldataload(interactions_)))
-                    //     let firstInteractionOffset := add(add(interactions_, calldataload(interactions_)), 0x20)
-                    //     let offsetsCutShort := mul(sub(nInteractions, nSubset), 0x20)
-                    //     for {let i := 0} lt(i, nSubset) { i := add(i, 1) } {
-                    //         mstore(lastWrittenByte, sub(calldataload(add(firstInteractionOffset, mul(i, 0x20))), offsetsCutShort))
-                    //         lastWrittenByte := add(lastWrittenByte, 0x20)
-                    //     }
-                    //
-                    //     // copy the pre interactions subset
-                    //     let interactionBytesStart := mload(dataSlices)
-                    //     let nInteractionBytes := mload(add(dataSlices, 0x20))
-                    //     calldatacopy(lastWrittenByte, interactionBytesStart, nInteractionBytes)
-                    //     lastWrittenByte := add(lastWrittenByte, nInteractionBytes)
-                    // }
-
-                    // {
-                    //     let nSubset := calldataload(add(offsets, 0x20))
-                    //
-                    //     // store the intra interactions offset
-                    //     mstore(add(interactionsStart, 0x20), sub(lastWrittenByte, interactionsStart))
-                    //
-                    //     // store the intra interactions length
-                    //     mstore(lastWrittenByte, nSubset)
-                    //     lastWrittenByte := add(lastWrittenByte, 0x20)
-                    //     let interactions_ := interactions
-                    //
-                    //     // copy the intra interaction offsets
-                    //     calldatacopy(
-                    //         lastWrittenByte,
-                    //         add(add(interactions_, calldataload(add(interactions_, 0x20))), 0x20),
-                    //         mul(nSubset, 0x20)
-                    //     )
-                    //     lastWrittenByte := add(lastWrittenByte, mul(nSubset, 0x20))
-                    //
-                    //     // copy the intra interactions subset
-                    //     let interactionBytesStart := mload(add(dataSlices, 0x40))
-                    //     let nInteractionBytes := mload(add(dataSlices, 0x60))
-                    //     calldatacopy(lastWrittenByte, interactionBytesStart, nInteractionBytes)
-                    //     lastWrittenByte := add(lastWrittenByte, nInteractionBytes)
-                    // }
-
-                    // {
-                    //     let nSubset := calldataload(add(offsets, 0x40))
-                    //
-                    //     // store the post interactions offset
-                    //     mstore(add(interactionsStart, 0x40), sub(lastWrittenByte, interactionsStart))
-                    //
-                    //     // store the post interactions length
-                    //     mstore(lastWrittenByte, nSubset)
-                    //     lastWrittenByte := add(lastWrittenByte, 0x20)
-                    //     let interactions_ := interactions
-                    //
-                    //     // copy the post interaction offsets
-                    //     calldatacopy(
-                    //         lastWrittenByte,
-                    //         add(add(interactions_, calldataload(add(interactions_, 0x20))), 0x20),
-                    //         mul(nSubset, 0x20)
-                    //     )
-                    //     lastWrittenByte := add(lastWrittenByte, mul(nSubset, 0x20))
-                    //
-                    //     // copy the post interactions subset
-                    //     let interactionBytesStart := mload(add(dataSlices, 0x80))
-                    //     let nInteractionBytes := mload(add(dataSlices, 0xa0))
-                    //     calldatacopy(lastWrittenByte, interactionBytesStart, nInteractionBytes)
-                    //     lastWrittenByte := add(lastWrittenByte, nInteractionBytes)
-                    // }
-
+                    // store the deadline
                     mstore(lastWrittenByte, deadline)
                     lastWrittenByte := add(lastWrittenByte, 0x20)
+                    // store the solver
                     mstore(lastWrittenByte, caller())
                     lastWrittenByte := add(lastWrittenByte, 0x20)
                     let nBytesToHash := sub(lastWrittenByte, dataStart)
+                    // compute the digest
                     digest := keccak256(dataStart, nBytesToHash)
-
-                    // calldataSize := nBytesToHash
-                    // calldataStart := dataStart
-                    // mstore(0x00, nBytesToHash)
-                    // pop(staticcall(0, 0x01, 0, 0x20, 0, 0))
-                    // mstore(0x40, lastWrittenByte)
                 }
 
-                // overwrite the interactions with original data
+                // overwrite the interactions with original data to get the full calldata for the settle call
                 calldatacopy(interactionsStart, interactions, sub(lastByte, interactions))
                 calldataSize := lastByte
                 calldataStart := sub(dataStart, 0x04)
 
-                // write the freePtr
+                // update the free memory ptr
                 mstore(0x40, add(dataStart, sub(lastByte, 0x04)))
             }
         }
@@ -400,6 +352,7 @@ library LibSignedSettlement {
         }
     }
 
+    /// @dev gets the last byte of given interaction in calldata
     function getLastByteInteraction(GPv2Interaction.Data calldata interaction)
         internal
         pure

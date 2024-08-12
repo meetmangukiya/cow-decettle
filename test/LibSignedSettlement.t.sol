@@ -209,7 +209,6 @@ contract LibSignedSettlementTest is Test {
             console.log("o0, o1, o2", offsets[0], offsets[1], offsets[2]);
             console.log("deadline", deadline);
         }
-        // vm.assume(offsets[0] > 0 && offsets[1] > 0 && offsets[2] > 0);
 
         bytes memory encodedParams = abi.encode(tokens, clearingPrices, trades, interactions);
         bytes memory encodedParams2;
@@ -258,39 +257,13 @@ contract LibSignedSettlementTest is Test {
 
         (uint256 deadline_, uint256 r_, uint256 s_, uint256 v_, bytes32 digest_, bytes memory externalCd) =
             abi.decode(data, (uint256, uint256, uint256, uint256, bytes32, bytes));
+        // stack too deep error, commenting for now
         // assertEq(deadline_, deadline, "deadline not as expected");
         // assertEq(r_, r, "r not as expected");
         // assertEq(s_, s, "s not as expected");
         // assertEq(v_, v, "v not as expected");
         assertEq(digest_, digest, "digest not as expected");
 
-        // bytes memory externalCd_ = externalCd;
-        // console.log("externalCd.length", externalCd_.length);
-        // // bytes memory encodedParams_ = encodedParams;
-        // bytes memory encodedParams_ = cdWithParams2;
-        // uint256 stepSize = 32;
-        // uint256 diff = 0;
-        // for (uint256 i = 0; i < ((externalCd_.length + 31) / stepSize); i += 1) {
-        //     bytes32 hash1;
-        //     bytes32 hash2;
-        //     assembly {
-        //         hash1 := keccak256(add(add(externalCd_, 0x20), mul(stepSize, i)), stepSize)
-        //         hash2 := keccak256(add(add(encodedParams_, 0x20), mul(stepSize, i)), stepSize)
-        //     }
-        //     if (hash1 != hash2) {
-        //         diff += 1;
-        //         console.log(i);
-        //         assembly {
-        //             log0(add(add(externalCd_, 0x20), mul(stepSize, i)), stepSize)
-        //             log0(add(add(encodedParams_, 0x20), mul(stepSize, i)), stepSize)
-        //         }
-        //     }
-        // }
-        // console.log("diff", diff);
-        // assertEq(diff, 0, "diffs");
-
-        // emit log_bytes(externalCd);
-        // emit log_bytes(encodedParams);
         console.log("externalCd", externalCd.length, encodedParams.length + 4);
         assertEq(
             keccak256(externalCd),

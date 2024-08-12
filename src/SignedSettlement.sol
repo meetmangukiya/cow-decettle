@@ -3,16 +3,15 @@ pragma solidity ^0.8;
 import {Auth} from "./Auth.sol";
 import {GPv2Trade} from "cowprotocol/libraries/GPv2Trade.sol";
 import {GPv2Interaction} from "cowprotocol/libraries/GPv2Interaction.sol";
-import {EIP712} from "solady/utils/EIP712.sol";
 import {LibSignedSettlement} from "./LibSignedSettlement.sol";
 import {ECDSA} from "solady/utils/ECDSA.sol";
 import {SubPoolFactory} from "./SubPoolFactory.sol";
 import {GPv2Settlement, IERC20} from "cowprotocol/GPv2Settlement.sol";
 
-contract SignedSettlement is Auth, EIP712 {
+contract SignedSettlement is Auth {
     error SignedSettlement__InvalidAttestor();
     error SignedSettlement__InvalidSolver();
-    error SigendSettlement__DeadlineElapsed();
+    error SignedSettlement__DeadlineElapsed();
     error SignedSettlement__CannotSolve();
 
     /// @notice whether signer can attest
@@ -26,13 +25,8 @@ contract SignedSettlement is Auth, EIP712 {
         attestor = _attestor;
     }
 
-    error Incorrect(uint256, uint256, bytes);
-
-    event Digest(bytes32);
-
     /// @notice Takes the required settlement data and verifies that it has been
-    ///         signed by a `signer`, and subsequently calls `GPv2.(Settlement.settle`.
-    /// @dev    Signed settlement function that is only callable by a collateralised subpool.
+    ///         signed by a `signer`, and subsequently calls `GPv2Settlement.settle`.
     function signedSettleFullySigned(
         address[] calldata tokens,
         uint256[] calldata clearingPrices,
@@ -44,6 +38,8 @@ contract SignedSettlement is Auth, EIP712 {
         _verifyAndExecuteSettle(deadline, r, s, v, digest, calldataStart, calldataSize);
     }
 
+    /// @notice Takes the required settlement data and verifies that it has been
+    ///         signed by a `signer`, and subsequently calls `GPv2Settlement.settle`.
     function signedSettlePartiallySigned(
         address[] calldata tokens,
         uint256[] calldata clearingPrices,
@@ -64,6 +60,8 @@ contract SignedSettlement is Auth, EIP712 {
         uint256 calldataStart,
         uint256 calldataSize
     ) internal {
+        if (block.timestamp > deadline) revert SignedSettlement__DeadlineElapsed();
+
         address signer = ECDSA.recover(digest, uint8(v), bytes32(r), bytes32(s));
         if (signer != attestor) {
             revert SignedSettlement__InvalidAttestor();
@@ -84,15 +82,5 @@ contract SignedSettlement is Auth, EIP712 {
                 revert(0, returndatasize())
             }
         }
-    }
-
-    /// @notice The EIP712 domain separator.
-    function domainSeparator() external view returns (bytes32) {
-        return _domainSeparator();
-    }
-
-    function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
-        name = "SignedSettlement";
-        version = "1";
     }
 }
