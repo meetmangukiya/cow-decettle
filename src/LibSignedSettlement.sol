@@ -2,174 +2,19 @@ pragma solidity 0.8.26;
 
 import {GPv2Trade, IERC20} from "cowprotocol/libraries/GPv2Trade.sol";
 import {GPv2Interaction} from "cowprotocol/libraries/GPv2Interaction.sol";
+import {ECDSA} from "solady/utils/ECDSA.sol";
 
 library LibSignedSettlement {
     error LibSignedSettlement__InvalidDeadline();
+    error LibSignedSettlement__InvalidExtraParamsFullySigned();
+    error LibSignedSettlement__InvalidExtraParamsPartiallySigned();
 
-    bytes32 internal constant TRADE_DATA_TYPE_HASH = keccak256(
-        "GPv2TradeData(uint256 sellTokenIndex,uint256 buyTokenIndex,address receiver,uint256 sellAmount,uint256 buyAmount,uint32 validTo,bytes32 appData,uint256 feeAmount,uint256 flags,uint256 executedAmount,bytes signature)"
-    );
-    bytes32 internal constant INTERACTION_DATA_TYPE_HASH =
-        keccak256("GPv2InteractionData(address target,uint256 value,bytes callData)");
-    bytes32 internal constant SETTLE_DATA_TYPE_HASH = keccak256(
-        "SettleData(address[] tokens,uint256[] clearingPrices,GPv2TradeData[] trades,GPv2InteractionData[] preInteractions)GPv2InteractionData(address target,uint256 value,bytes callData)GPv2TradeData(uint256 sellTokenIndex,uint256 buyTokenIndex,address receiver,uint256 sellAmount,uint256 buyAmount,uint32 validTo,bytes32 appData,uint256 feeAmount,uint256 flags,uint256 executedAmount,bytes signature)"
-    );
-
-    function hashSettleData(
-        IERC20[] memory tokens,
-        uint256[] memory clearingPrices,
-        GPv2Trade.Data[] calldata trades,
-        GPv2Interaction.Data[] calldata preInteractions
-    ) internal pure returns (bytes32 settleDataHash) {
-        bytes32 tokensHash;
-        bytes32 clearingPricesHash;
-
-        uint256 hashingRegionStart = allocateHashingRegion(trades, preInteractions);
-        bytes32 tradesHash = hashTrades(trades, hashingRegionStart);
-        bytes32 interactionsHash = hashInteractions(preInteractions, hashingRegionStart);
-        bytes32 settleDataTypeHash = SETTLE_DATA_TYPE_HASH;
-
-        assembly ("memory-safe") {
-            let len := mul(mload(tokens), 0x20)
-            tokensHash := keccak256(add(tokens, 0x20), len)
-            clearingPricesHash := keccak256(add(clearingPrices, 0x20), len)
-
-            mstore(hashingRegionStart, settleDataTypeHash)
-            mstore(add(hashingRegionStart, 0x20), tokensHash)
-            mstore(add(hashingRegionStart, 0x40), clearingPricesHash)
-            mstore(add(hashingRegionStart, 0x60), tradesHash)
-            mstore(add(hashingRegionStart, 0x80), interactionsHash)
-
-            settleDataHash := keccak256(hashingRegionStart, 0xa0)
-        }
-    }
-
-    function hashTrades(GPv2Trade.Data[] calldata trades, uint256 hashingRegionStart) internal pure returns (bytes32) {
-        bytes32 tradeTypehash = TRADE_DATA_TYPE_HASH;
-        uint256 tradesHashArrayOffset = hashingRegionStart + (12 * 32);
-        uint256 tradesHashArrayItemOffset = tradesHashArrayOffset;
-        uint256 tradesLength = trades.length;
-
-        for (uint256 i = 0; i < tradesLength;) {
-            GPv2Trade.Data calldata trade = trades[i];
-            bytes calldata signature = trade.signature;
-            assembly ("memory-safe") {
-                // copy the order signature to the end of memory, this is safe because
-                // there are no memory allocations in this block before the copied memory gets used
-                // for hashing
-                let freeMemoryPtr := mload(0x40)
-                let signatureLength := signature.length
-                calldatacopy(freeMemoryPtr, signature.offset, signatureLength)
-                let signatureHash := keccak256(freeMemoryPtr, signatureLength)
-
-                // hash the trade
-                mstore(hashingRegionStart, tradeTypehash)
-                // copy the first 10 words, which are all the fields in the struct except the signature
-                calldatacopy(add(hashingRegionStart, 0x20), trade, 320)
-                // copy the signature hash
-                mstore(add(hashingRegionStart, 0x160), signatureHash)
-                let tradeHash := keccak256(hashingRegionStart, 0x180)
-
-                // store the trade hash in array to rehash at the end of loop
-                mstore(tradesHashArrayItemOffset, tradeHash)
-                tradesHashArrayItemOffset := add(tradesHashArrayItemOffset, 0x20)
-                i := add(i, 1)
-            }
-        }
-
-        bytes32 tradesHash;
-        assembly ("memory-safe") {
-            tradesHash := keccak256(tradesHashArrayOffset, mul(tradesLength, 0x20))
-        }
-
-        return tradesHash;
-    }
-
-    function hashInteractions(GPv2Interaction.Data[] calldata interactions, uint256 hashingRegionStart)
-        internal
-        pure
-        returns (bytes32)
-    {
-        bytes32 interactionTypeHash = INTERACTION_DATA_TYPE_HASH;
-        uint256 interactionsLength = interactions.length;
-
-        uint256 interactionsHashArrayOffset = hashingRegionStart + (12 * 32);
-        uint256 interactionsHashArrayItemOffset = interactionsHashArrayOffset;
-
-        for (uint256 i = 0; i < interactionsLength;) {
-            GPv2Interaction.Data calldata interactionData = interactions[i];
-            bytes calldata callData = interactionData.callData;
-            assembly ("memory-safe") {
-                let freeMemoryPtr := mload(0x40)
-                let callDataLength := callData.length
-                // copy the order signature to the end of memory, this is safe because
-                // there are no memory allocations in this block before the copied memory gets used
-                // for hashing
-                calldatacopy(freeMemoryPtr, callData.offset, callDataLength)
-                let callDataHash := keccak256(freeMemoryPtr, callDataLength)
-
-                mstore(hashingRegionStart, interactionTypeHash)
-                mstore(add(hashingRegionStart, 0x20), calldataload(interactionData))
-                mstore(add(hashingRegionStart, 0x40), calldataload(add(interactionData, 0x20)))
-                mstore(add(hashingRegionStart, 0x60), callDataHash)
-
-                let interactionHash := keccak256(hashingRegionStart, 0x80)
-
-                // store the interaction hash in array to rehash at the end of loop
-                mstore(interactionsHashArrayItemOffset, interactionHash)
-                interactionsHashArrayItemOffset := add(interactionsHashArrayItemOffset, 0x20)
-                i := add(i, 1)
-            }
-        }
-
-        bytes32 interactionsHash;
-        assembly ("memory-safe") {
-            interactionsHash := keccak256(interactionsHashArrayOffset, mul(interactionsLength, 0x20))
-        }
-        return interactionsHash;
-    }
-
-    function allocateHashingRegion(GPv2Trade.Data[] calldata trades, GPv2Interaction.Data[] calldata preInteractions)
-        internal
-        pure
-        returns (uint256)
-    {
-        uint256 hashingRegionStart;
-        // limit scope because all of these vars are never used again
-        {
-            uint256 tradesLength = trades.length;
-            uint256 preInteractionsLength = preInteractions.length;
-            uint256 tradeFieldsLength = 11 + 1; // 11 fields, 1 typehash field
-            uint256 hashingRegionLength =
-                tradeFieldsLength + (tradesLength > preInteractionsLength ? tradesLength : preInteractionsLength);
-            // first 12 bytes are reserved for hashing single trade data and interaction data
-            // remainder of the region is used for hashing the array
-            bytes32[] memory hashingRegion = new bytes32[](hashingRegionLength);
-
-            assembly ("memory-safe") {
-                hashingRegionStart := add(hashingRegion, 0x20)
-            }
-        }
-        return hashingRegionStart;
-    }
-
-    function transformToSubsetSimple() internal pure returns (bytes memory) {}
-
-    /// @dev Deadline and signature is encoded at the end of the calldata. It is not just used directly
-    ///      as a parameter to the function because that'd lead to the deadline getting
-    ///      encoded inplace and messing up all the offets which'd mean we cannot directly
-    ///      copy the calldata as-is for the call to the actual settlement contract.
-    ///
-    ///      Instead of reading the last 32 bytes directly with `calldataload(sub(calldatasize(), 32))`
-    ///      we determine the expected byteoffset to read based on the last post interaction. Acts as a
-    ///      a validation that a deadline was infact encoded at the end of calldata and not accidentally
-    ///      reading a word from the last interaction's encoded data.
-    function readDeadlineAndSignature(
+    function readExtraBytes(
         address[] calldata,
         uint256[] calldata,
         GPv2Trade.Data[] calldata,
         GPv2Interaction.Data[][3] calldata interactions
-    ) internal pure returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256 lastByte) {
+    ) internal pure returns (bytes calldata remainderBytes, uint256 lastByte) {
         {
             uint256 lenPostInteractions = interactions[2].length;
             if (lenPostInteractions > 0) {
@@ -196,8 +41,34 @@ library LibSignedSettlement {
                 }
             }
 
+            assembly ("memory-safe") {
+                remainderBytes.offset := lastByte
+                remainderBytes.length := sub(calldatasize(), lastByte)
+            }
+        }
+    }
+
+    /// @dev Deadline and signature is encoded at the end of the calldata. It is not just used directly
+    ///      as a parameter to the function because that'd lead to the deadline getting
+    ///      encoded inplace and messing up all the offets which'd mean we cannot directly
+    ///      copy the calldata as-is for the call to the actual settlement contract.
+    ///
+    ///      Instead of reading the last 32 bytes directly with `calldataload(sub(calldatasize(), 32))`
+    ///      we determine the expected byteoffset to read based on the last post interaction. Acts as a
+    ///      a validation that a deadline was infact encoded at the end of calldata and not accidentally
+    ///      reading a word from the last interaction's encoded data.
+    function readExtraParamsFullySigned(
+        address[] calldata tokens,
+        uint256[] calldata clearingPrices,
+        GPv2Trade.Data[] calldata trades,
+        GPv2Interaction.Data[][3] calldata interactions
+    ) internal pure returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256 lastByte) {
+        {
+            bytes calldata extraBytes;
+            (extraBytes, lastByte) = readExtraBytes(tokens, clearingPrices, trades, interactions);
+
             if (lastByte != msg.data.length - 97) {
-                revert LibSignedSettlement__InvalidDeadline();
+                revert LibSignedSettlement__InvalidExtraParamsFullySigned();
             }
 
             assembly ("memory-safe") {
@@ -207,5 +78,347 @@ library LibSignedSettlement {
                 v := and(calldataload(add(lastByte, 65)), 0xff)
             }
         }
+    }
+
+    error A(uint256, uint256);
+
+    function readExtraParamsPartiallySigned(
+        address[] calldata tokens,
+        uint256[] calldata clearingPrices,
+        GPv2Trade.Data[] calldata trades,
+        GPv2Interaction.Data[][3] calldata interactions
+    )
+        internal
+        pure
+        returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256[3] calldata offsets, uint256 lastByte)
+    {
+        {
+            bytes calldata extraBytes;
+            (extraBytes, lastByte) = readExtraBytes(tokens, clearingPrices, trades, interactions);
+
+            if (lastByte != msg.data.length - 193) {
+                revert A(lastByte, msg.data.length - 193);
+                revert LibSignedSettlement__InvalidExtraParamsPartiallySigned();
+            }
+
+            assembly ("memory-safe") {
+                deadline := calldataload(lastByte)
+                r := calldataload(add(lastByte, 0x20))
+                s := calldataload(add(lastByte, 0x40))
+                v := and(calldataload(add(lastByte, 0x41)), 0xff)
+                offsets := add(lastByte, 0x61)
+            }
+
+            if (
+                offsets[0] > interactions[0].length || offsets[1] > interactions[1].length
+                    || offsets[2] > interactions[2].length
+            ) {
+                revert LibSignedSettlement__InvalidExtraParamsPartiallySigned();
+            }
+        }
+    }
+
+    function getParamsDigestAndCalldataFullySigned(
+        address[] calldata tokens,
+        uint256[] calldata clearingPrices,
+        GPv2Trade.Data[] calldata trades,
+        GPv2Interaction.Data[][3] calldata interactions
+    )
+        internal
+        view
+        returns (
+            uint256 deadline,
+            uint256 r,
+            uint256 s,
+            uint256 v,
+            bytes32 digest,
+            uint256 calldataStart,
+            uint256 calldataSize
+        )
+    {
+        {
+            uint256 lastByte;
+            (deadline, r, s, v, lastByte) = readExtraParamsFullySigned(tokens, clearingPrices, trades, interactions);
+
+            assembly ("memory-safe") {
+                let freePtr := mload(0x40)
+                let dataStart := add(freePtr, 0x20)
+                // lastByte - 4(method id) + 32(deadline)
+                let nBytesToCopy := add(lastByte, 0x1c)
+                // copy all the params including the extra param `deadline` appended to the calldata
+                calldatacopy(dataStart, 0x04, nBytesToCopy)
+                // store the solver after deadline
+                mstore(add(dataStart, nBytesToCopy), caller())
+                // hash the message abi.encode(tokens, clearingPrices, trades, interactions) | deadline | solver
+                digest := keccak256(dataStart, add(nBytesToCopy, 0x20))
+                // update the freePtr
+                mstore(0x40, add(freePtr, add(nBytesToCopy, 0x20)))
+                // store the GPv2Interaction.settle method selector
+                mstore(freePtr, 0x13d79a0b)
+
+                calldataStart := add(freePtr, 0x1c)
+                calldataSize := lastByte
+            }
+        }
+    }
+
+    function getParamsDigestAndCalldataPartiallySigned(
+        address[] calldata tokens,
+        uint256[] calldata clearingPrices,
+        GPv2Trade.Data[] calldata trades,
+        GPv2Interaction.Data[][3] calldata interactions
+    )
+        internal
+        view
+        returns (
+            uint256 deadline,
+            uint256 r,
+            uint256 s,
+            uint256 v,
+            bytes32 digest,
+            uint256 calldataStart,
+            uint256 calldataSize
+        )
+    {
+        {
+            uint256 lastByte;
+            (deadline, r, s, v,, lastByte) =
+                readExtraParamsPartiallySigned(tokens, clearingPrices, trades, interactions);
+            uint256[3] calldata offsets;
+            assembly {
+                offsets := add(lastByte, 0x61)
+            }
+            uint256 dataSlices;
+
+            assembly ("memory-safe") {
+                dataSlices := mload(0x40)
+                mstore(0x40, add(dataSlices, 0xc0))
+                pop(staticcall(0, caller(), 0, 0, 0, 0))
+            }
+
+            storeSubsetOffets(interactions[0], dataSlices, offsets[0]);
+            storeSubsetOffets(interactions[1], dataSlices + 0x40, offsets[1]);
+            storeSubsetOffets(interactions[2], dataSlices + 0x80, offsets[2]);
+            // uint lastInteractionsByte;
+            // {
+            //     GPv2Interaction.Data[] calldata postInteractions = interactions[2];
+            //     if (postInteractions.length == 0) {
+            //         assembly ("memory-safe") {
+            //             lastInteractionsByte := postInteractions.offset
+            //         }
+            //     } else {
+            //         lastInteractionsByte = getLastByteInteraction(postInteractions[postInteractions.length - 1]);
+            //     }
+            // }
+
+            assembly ("memory-safe") {
+                let freePtr := mload(0x40)
+                // store the GPv2Settlement.settle data selector. setting at the bottom leads to stack too deep.
+                mstore(freePtr, 0x13d79a0b)
+
+                let dataStart := add(freePtr, 0x20)
+
+                let nBytesToCopy := sub(interactions, 0x04)
+                // call upto trades' last byte
+                calldatacopy(dataStart, 0x04, nBytesToCopy)
+
+                let interactionsStart := add(dataStart, nBytesToCopy)
+                {
+                    let lastWrittenByte := interactionsStart
+
+                    function copyInteractionsSubset(
+                        relativeOffset, offsets_, interactionsStart_, lastWrittenByte_, interactions_, dataSlices_
+                    ) -> newLastWrittenByte {
+                        let nSubset := calldataload(add(offsets_, relativeOffset))
+                        let iOffset := sub(lastWrittenByte_, interactionsStart_)
+
+                        // pre interactions offset is fixed
+                        mstore(add(interactionsStart_, relativeOffset), iOffset)
+
+                        // store pre interaction subset length
+                        mstore(lastWrittenByte_, nSubset)
+                        lastWrittenByte_ := add(lastWrittenByte_, 0x20)
+
+                        // copy the pre interaction offsets
+                        let nInteractions :=
+                            calldataload(add(interactions_, calldataload(add(interactions_, relativeOffset))))
+                        let firstInteractionOffset :=
+                            add(add(interactions_, calldataload(add(interactions_, relativeOffset))), 0x20)
+                        let offsetsCutShort := mul(sub(nInteractions, nSubset), 0x20)
+                        for { let i := 0 } lt(i, nSubset) { i := add(i, 1) } {
+                            mstore(
+                                lastWrittenByte_,
+                                sub(calldataload(add(firstInteractionOffset, mul(i, 0x20))), offsetsCutShort)
+                            )
+                            lastWrittenByte_ := add(lastWrittenByte_, 0x20)
+                        }
+
+                        // copy the pre interactions subset
+                        let interactionBytesStart := mload(add(dataSlices_, mul(relativeOffset, 2)))
+                        let nInteractionBytes := mload(add(add(dataSlices_, mul(relativeOffset, 2)), 0x20))
+                        mstore(0x00, interactionBytesStart)
+                        mstore(0x20, nInteractionBytes)
+                        pop(staticcall(0, 0x01, 0x00, 0x40, 0x00, 0x00))
+                        calldatacopy(lastWrittenByte_, interactionBytesStart, nInteractionBytes)
+                        lastWrittenByte_ := add(lastWrittenByte_, nInteractionBytes)
+                        newLastWrittenByte := lastWrittenByte_
+                    }
+
+                    lastWrittenByte := add(lastWrittenByte, 0x60)
+                    lastWrittenByte :=
+                        copyInteractionsSubset(0x00, offsets, interactionsStart, lastWrittenByte, interactions, dataSlices)
+                    lastWrittenByte :=
+                        copyInteractionsSubset(0x20, offsets, interactionsStart, lastWrittenByte, interactions, dataSlices)
+                    lastWrittenByte :=
+                        copyInteractionsSubset(0x40, offsets, interactionsStart, lastWrittenByte, interactions, dataSlices)
+
+                    // {
+                    //     let nSubset := calldataload(offsets)
+                    //
+                    //     // pre interactions offset is fixed
+                    //     mstore(interactionsStart, 0x60)
+                    //
+                    //     // store pre interaction subset length
+                    //     mstore(add(interactionsStart, 0x60), nSubset)
+                    //     lastWrittenByte := add(interactionsStart, 0x80)
+                    //     let interactions_ := interactions
+                    //
+                    //     // copy the pre interaction offsets
+                    //     let nInteractions := calldataload(add(interactions_, calldataload(interactions_)))
+                    //     let firstInteractionOffset := add(add(interactions_, calldataload(interactions_)), 0x20)
+                    //     let offsetsCutShort := mul(sub(nInteractions, nSubset), 0x20)
+                    //     for {let i := 0} lt(i, nSubset) { i := add(i, 1) } {
+                    //         mstore(lastWrittenByte, sub(calldataload(add(firstInteractionOffset, mul(i, 0x20))), offsetsCutShort))
+                    //         lastWrittenByte := add(lastWrittenByte, 0x20)
+                    //     }
+                    //
+                    //     // copy the pre interactions subset
+                    //     let interactionBytesStart := mload(dataSlices)
+                    //     let nInteractionBytes := mload(add(dataSlices, 0x20))
+                    //     calldatacopy(lastWrittenByte, interactionBytesStart, nInteractionBytes)
+                    //     lastWrittenByte := add(lastWrittenByte, nInteractionBytes)
+                    // }
+
+                    // {
+                    //     let nSubset := calldataload(add(offsets, 0x20))
+                    //
+                    //     // store the intra interactions offset
+                    //     mstore(add(interactionsStart, 0x20), sub(lastWrittenByte, interactionsStart))
+                    //
+                    //     // store the intra interactions length
+                    //     mstore(lastWrittenByte, nSubset)
+                    //     lastWrittenByte := add(lastWrittenByte, 0x20)
+                    //     let interactions_ := interactions
+                    //
+                    //     // copy the intra interaction offsets
+                    //     calldatacopy(
+                    //         lastWrittenByte,
+                    //         add(add(interactions_, calldataload(add(interactions_, 0x20))), 0x20),
+                    //         mul(nSubset, 0x20)
+                    //     )
+                    //     lastWrittenByte := add(lastWrittenByte, mul(nSubset, 0x20))
+                    //
+                    //     // copy the intra interactions subset
+                    //     let interactionBytesStart := mload(add(dataSlices, 0x40))
+                    //     let nInteractionBytes := mload(add(dataSlices, 0x60))
+                    //     calldatacopy(lastWrittenByte, interactionBytesStart, nInteractionBytes)
+                    //     lastWrittenByte := add(lastWrittenByte, nInteractionBytes)
+                    // }
+
+                    // {
+                    //     let nSubset := calldataload(add(offsets, 0x40))
+                    //
+                    //     // store the post interactions offset
+                    //     mstore(add(interactionsStart, 0x40), sub(lastWrittenByte, interactionsStart))
+                    //
+                    //     // store the post interactions length
+                    //     mstore(lastWrittenByte, nSubset)
+                    //     lastWrittenByte := add(lastWrittenByte, 0x20)
+                    //     let interactions_ := interactions
+                    //
+                    //     // copy the post interaction offsets
+                    //     calldatacopy(
+                    //         lastWrittenByte,
+                    //         add(add(interactions_, calldataload(add(interactions_, 0x20))), 0x20),
+                    //         mul(nSubset, 0x20)
+                    //     )
+                    //     lastWrittenByte := add(lastWrittenByte, mul(nSubset, 0x20))
+                    //
+                    //     // copy the post interactions subset
+                    //     let interactionBytesStart := mload(add(dataSlices, 0x80))
+                    //     let nInteractionBytes := mload(add(dataSlices, 0xa0))
+                    //     calldatacopy(lastWrittenByte, interactionBytesStart, nInteractionBytes)
+                    //     lastWrittenByte := add(lastWrittenByte, nInteractionBytes)
+                    // }
+
+                    mstore(lastWrittenByte, deadline)
+                    lastWrittenByte := add(lastWrittenByte, 0x20)
+                    mstore(lastWrittenByte, caller())
+                    lastWrittenByte := add(lastWrittenByte, 0x20)
+                    let nBytesToHash := sub(lastWrittenByte, dataStart)
+                    digest := keccak256(dataStart, nBytesToHash)
+
+                    // calldataSize := nBytesToHash
+                    // calldataStart := dataStart
+                    // mstore(0x00, nBytesToHash)
+                    // pop(staticcall(0, 0x01, 0, 0x20, 0, 0))
+                    // mstore(0x40, lastWrittenByte)
+                }
+
+                // overwrite the interactions with original data
+                calldatacopy(interactionsStart, interactions, sub(lastByte, interactions))
+                calldataSize := lastByte
+                calldataStart := sub(dataStart, 0x04)
+
+                // write the freePtr
+                mstore(0x40, add(dataStart, sub(lastByte, 0x04)))
+            }
+        }
+    }
+
+    /// @dev stores the memory offse and size at memory slots `memoryOffset` and `memoryOffset + 20`
+    function storeSubsetOffets(GPv2Interaction.Data[] calldata interactions, uint256 memoryOffset, uint256 subsetLen)
+        internal
+        pure
+    {
+        {
+            uint256 len = interactions.length;
+            if (len == 0 || subsetLen == 0) {
+                assembly ("memory-safe") {
+                    mstore(memoryOffset, 0)
+                    mstore(add(memoryOffset, 0x20), 0)
+                }
+            } else {
+                GPv2Interaction.Data calldata firstPreInteraction = interactions[0];
+                GPv2Interaction.Data calldata lastPreInteraction = interactions[subsetLen - 1];
+                uint256 lastByte = getLastByteInteraction(lastPreInteraction);
+                assembly ("memory-safe") {
+                    mstore(memoryOffset, firstPreInteraction)
+                    mstore(add(memoryOffset, 0x20), sub(lastByte, firstPreInteraction))
+                }
+            }
+        }
+    }
+
+    function getLastByteInteraction(GPv2Interaction.Data calldata interaction)
+        internal
+        pure
+        returns (uint256 lastByte)
+    {
+        uint256 offset;
+        assembly ("memory-safe") {
+            offset := interaction
+        }
+        uint256 cdLen = interaction.callData.length;
+        uint256 cdWords = (cdLen + 31) / 32;
+        lastByte = offset
+            + (
+                1 // target
+                    + 1 // value
+                    + 1 // callData offset
+                    + 1 // callData length
+                        // n words for callData
+                    + cdWords
+            ) * 32;
     }
 }

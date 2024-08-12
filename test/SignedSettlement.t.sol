@@ -139,6 +139,8 @@ contract SignedSettlementTest is BaseTest {
     ) external {
         bytes memory encoded = abi.encode(tokens, clearingPrices, trades, interactions);
         bytes memory payloadToSign = abi.encodePacked(encoded, abi.encode(deadline, solver));
+        console.log("payload to sign", payloadToSign.length);
+        console.log("attestor", attestor.addr);
         bytes32 digest = keccak256(payloadToSign);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestor, digest);
         bytes memory payloadToSend =
@@ -159,21 +161,63 @@ contract SignedSettlementTest is BaseTest {
     error Debug(bytes);
 
     function testSignedSettlePartiallySigned(
-        address[] calldata tokens,
-        uint256[] calldata clearingPrices,
-        GPv2Trade.Data[] calldata trades,
-        GPv2Interaction.Data[][3] calldata interactions,
-        uint256 someUint
+        address[] memory tokens,
+        uint256[] memory clearingPrices,
+        GPv2Trade.Data[] memory trades,
+        GPv2Interaction.Data[][3] memory interactions,
+        uint256 deadline,
+        uint256[3] memory offsets
     ) external {
-        bytes memory cd = abi.encodePacked(
-            abi.encodeCall(LibExt.something, (tokens, clearingPrices, trades, interactions)), abi.encode(someUint)
-        );
-        // bytes memory cd = abi.encodeWithSelector(LibExt.something.selector, abi.encodePacked(abi.encode(tokens, clearingPrices, trades, interactions), someUint));
-        LibExt ext = new LibExt();
-        (bool success, bytes memory data) = address(ext).call(cd);
-        require(success, "not successful");
-        assertEq(abi.decode(data, (uint256)), someUint, "invalid cusotm data");
+        offsets[0] = bound(offsets[0], 0, interactions[0].length);
+        offsets[1] = bound(offsets[1], 0, interactions[1].length);
+        offsets[2] = bound(offsets[2], 0, interactions[2].length);
+        GPv2Interaction.Data[][3] memory subsetInteractions;
+        {
+            for (uint256 i = 0; i < 3; i++) {
+                subsetInteractions[i] = new GPv2Interaction.Data[](offsets[i]);
+                for (uint256 j = 0; j < offsets[i]; j++) {
+                    subsetInteractions[i][j] = interactions[i][j];
+                }
+            }
+        }
+
+        bytes memory encoded = abi.encode(tokens, clearingPrices, trades, subsetInteractions);
+        bytes memory payloadToSign = abi.encodePacked(encoded, abi.encode(deadline, solver));
+        console.log("payload to sign", payloadToSign.length);
+        console.log("attestor", attestor.addr);
+        bytes32 digest = keccak256(payloadToSign);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestor, digest);
+        bytes memory payloadToSend =
+            abi.encodePacked(SignedSettlement.signedSettlePartiallySigned.selector, encoded, deadline, r, s, v, offsets);
+        bytes memory expectedCalldata = abi.encodePacked(GPv2Settlement.settle.selector, encoded);
+
+        address settlement = address(signedSettlement.settlement());
+        vm.prank(solver);
+        vm.expectCall(settlement, expectedCalldata);
+        (bool success, bytes memory ret) = address(signedSettlement).call(payloadToSend);
+        if (!success) {
+            assembly ("memory-safe") {
+                revert(add(ret, 0x20), mload(ret))
+            }
+        }
     }
+
+    // function testSignedSettlePartiallySigned(
+    //     address[] calldata tokens,
+    //     uint256[] calldata clearingPrices,
+    //     GPv2Trade.Data[] calldata trades,
+    //     GPv2Interaction.Data[][3] calldata interactions,
+    //     uint256 someUint
+    // ) external {
+    //     bytes memory cd = abi.encodePacked(
+    //         abi.encodeCall(LibExt.something, (tokens, clearingPrices, trades, interactions)), abi.encode(someUint)
+    //     );
+    //     // bytes memory cd = abi.encodeWithSelector(LibExt.something.selector, abi.encodePacked(abi.encode(tokens, clearingPrices, trades, interactions), someUint));
+    //     LibExt ext = new LibExt();
+    //     (bool success, bytes memory data) = address(ext).call(cd);
+    //     require(success, "not successful");
+    //     assertEq(abi.decode(data, (uint256)), someUint, "invalid cusotm data");
+    // }
 
     // function _payload1() internal returns () {
     //
