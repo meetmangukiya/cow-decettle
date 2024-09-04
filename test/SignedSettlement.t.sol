@@ -43,10 +43,10 @@ contract SignedSettlementTest is BaseTest {
         vm.prank(allowlistManager);
         authenticator.addSolver(address(signedSettlement));
 
-        vm.etch(address(signedSettlement.settlement()), hex"");
+        vm.etch(address(settlement), hex"");
     }
 
-    function testSignedSettleFullySigned(
+    function testFuzzSignedSettleFullySigned(
         address[] calldata tokens,
         uint256[] calldata clearingPrices,
         GPv2Trade.Data[] calldata trades,
@@ -54,15 +54,8 @@ contract SignedSettlementTest is BaseTest {
         uint256 deadline
     ) external {
         vm.assume(deadline >= block.timestamp);
-        bytes memory encoded = abi.encode(tokens, clearingPrices, trades, interactions);
-        bytes memory payloadToSign = abi.encodePacked(encoded, abi.encode(deadline, solver));
-        console.log("payload to sign", payloadToSign.length);
-        console.log("attestor", attestor.addr);
-        bytes32 digest = keccak256(payloadToSign);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestor, digest);
-        bytes memory payloadToSend =
-            abi.encodePacked(SignedSettlement.signedSettleFullySigned.selector, encoded, deadline, r, s, v);
-        bytes memory expectedCalldata = abi.encodePacked(GPv2Settlement.settle.selector, encoded);
+        (bytes memory payloadToSend, bytes memory expectedCalldata) =
+            _fullySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, attestor);
 
         address settlement = address(signedSettlement.settlement());
         vm.prank(solver);
@@ -75,7 +68,7 @@ contract SignedSettlementTest is BaseTest {
         }
     }
 
-    function testSignedSettlePartiallySigned(
+    function testFuzzSignedSettlePartiallySigned(
         address[] memory tokens,
         uint256[] memory clearingPrices,
         GPv2Trade.Data[] memory trades,
@@ -87,6 +80,88 @@ contract SignedSettlementTest is BaseTest {
         offsets[0] = bound(offsets[0], 0, interactions[0].length);
         offsets[1] = bound(offsets[1], 0, interactions[1].length);
         offsets[2] = bound(offsets[2], 0, interactions[2].length);
+        (bytes memory payloadToSend, bytes memory expectedCalldata) =
+            _partiallySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, offsets, attestor);
+
+        address settlement = address(signedSettlement.settlement());
+        vm.prank(solver);
+        vm.expectCall(settlement, expectedCalldata);
+        (bool success, bytes memory ret) = address(signedSettlement).call(payloadToSend);
+        if (!success) {
+            assembly ("memory-safe") {
+                revert(add(ret, 0x20), mload(ret))
+            }
+        }
+    }
+
+    function testFullySignedSettle() external {
+        address[] memory tokens = new address[](2);
+        uint256[] memory clearingPrices = new uint256[](2);
+        GPv2Trade.Data[] memory trades = new GPv2Trade.Data[](2);
+        GPv2Interaction.Data[][3] memory interactions;
+
+        uint256 deadline = block.timestamp - 1;
+        (bytes memory payloadToSend,) =
+            _fullySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, attestor);
+        vm.expectRevert(SignedSettlement.SignedSettlement__DeadlineElapsed.selector);
+        address(signedSettlement).call(payloadToSend);
+
+        VmSafe.Wallet memory notAttestor = vm.createWallet("notAttestor");
+        deadline = block.timestamp;
+        (payloadToSend,) =
+            _fullySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, notAttestor);
+        vm.expectRevert(SignedSettlement.SignedSettlement__InvalidAttestor.selector);
+        address(signedSettlement).call(payloadToSend);
+    }
+
+    function testPartiallySignedSettle() external {
+        address[] memory tokens = new address[](2);
+        uint256[] memory clearingPrices = new uint256[](2);
+        GPv2Trade.Data[] memory trades = new GPv2Trade.Data[](2);
+        GPv2Interaction.Data[][3] memory interactions;
+        uint256[3] memory offsets;
+
+        uint256 deadline = block.timestamp - 1;
+        (bytes memory payloadToSend,) =
+            _partiallySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, offsets, attestor);
+        vm.expectRevert(SignedSettlement.SignedSettlement__DeadlineElapsed.selector);
+        address(signedSettlement).call(payloadToSend);
+
+        VmSafe.Wallet memory notAttestor = vm.createWallet("notAttestor");
+        deadline = block.timestamp;
+        (payloadToSend,) =
+            _partiallySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, offsets, notAttestor);
+        vm.expectRevert(SignedSettlement.SignedSettlement__InvalidAttestor.selector);
+        address(signedSettlement).call(payloadToSend);
+    }
+
+    function _fullySignedSettleCalldata(
+        address[] memory tokens,
+        uint256[] memory clearingPrices,
+        GPv2Trade.Data[] memory trades,
+        GPv2Interaction.Data[][3] memory interactions,
+        uint256 deadline,
+        VmSafe.Wallet memory attestor
+    ) internal returns (bytes memory payloadToSend, bytes memory expectedCalldata) {
+        bytes memory encoded = abi.encode(tokens, clearingPrices, trades, interactions);
+        bytes memory payloadToSign = abi.encodePacked(encoded, abi.encode(deadline, solver));
+        console.log("payload to sign", payloadToSign.length);
+        console.log("attestor", attestor.addr);
+        bytes32 digest = keccak256(payloadToSign);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestor, digest);
+        payloadToSend = abi.encodePacked(SignedSettlement.signedSettleFullySigned.selector, encoded, deadline, r, s, v);
+        expectedCalldata = abi.encodePacked(GPv2Settlement.settle.selector, encoded);
+    }
+
+    function _partiallySignedSettleCalldata(
+        address[] memory tokens,
+        uint256[] memory clearingPrices,
+        GPv2Trade.Data[] memory trades,
+        GPv2Interaction.Data[][3] memory interactions,
+        uint256 deadline,
+        uint256[3] memory offsets,
+        VmSafe.Wallet memory attestor
+    ) internal returns (bytes memory payloadToSend, bytes memory expectedCalldata) {
         GPv2Interaction.Data[][3] memory subsetInteractions;
         {
             for (uint256 i = 0; i < 3; i++) {
@@ -103,18 +178,11 @@ contract SignedSettlementTest is BaseTest {
         console.log("attestor", attestor.addr);
         bytes32 digest = keccak256(payloadToSign);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestor, digest);
-        bytes memory payloadToSend =
-            abi.encodePacked(SignedSettlement.signedSettlePartiallySigned.selector, encoded, deadline, r, s, v, offsets);
-        bytes memory expectedCalldata = abi.encodePacked(GPv2Settlement.settle.selector, encoded);
-
-        address settlement = address(signedSettlement.settlement());
-        vm.prank(solver);
-        vm.expectCall(settlement, expectedCalldata);
-        (bool success, bytes memory ret) = address(signedSettlement).call(payloadToSend);
-        if (!success) {
-            assembly ("memory-safe") {
-                revert(add(ret, 0x20), mload(ret))
-            }
-        }
+        uint256 deadline_ = deadline;
+        uint256[3] memory offsets_ = offsets;
+        payloadToSend = abi.encodePacked(
+            SignedSettlement.signedSettlePartiallySigned.selector, encoded, deadline_, r, s, v, offsets_
+        );
+        expectedCalldata = abi.encodePacked(GPv2Settlement.settle.selector, encoded);
     }
 }

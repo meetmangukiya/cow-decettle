@@ -21,7 +21,7 @@ contract BaseTest is Test {
     function setUp() public virtual {
         attestor = vm.createWallet("attestor");
         notAttestor = vm.createWallet("notAttestor");
-        signedSettlement = new SignedSettlement(factory, settlement, attestor.addr);
+        signedSettlement = new SignedSettlement(settlement, attestor.addr);
     }
 
     function _seedAndDeployPool(

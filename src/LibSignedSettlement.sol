@@ -5,7 +5,6 @@ import {GPv2Interaction} from "cowprotocol/libraries/GPv2Interaction.sol";
 import {ECDSA} from "solady/utils/ECDSA.sol";
 
 library LibSignedSettlement {
-    error LibSignedSettlement__InvalidDeadline();
     error LibSignedSettlement__InvalidExtraParamsFullySigned();
     error LibSignedSettlement__InvalidExtraParamsPartiallySigned();
 

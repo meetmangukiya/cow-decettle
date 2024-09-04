@@ -10,17 +10,13 @@ import {GPv2Settlement, IERC20} from "cowprotocol/GPv2Settlement.sol";
 
 contract SignedSettlement is Auth {
     error SignedSettlement__InvalidAttestor();
-    error SignedSettlement__InvalidSolver();
     error SignedSettlement__DeadlineElapsed();
-    error SignedSettlement__CannotSolve();
 
     /// @notice whether signer can attest
     address public immutable attestor;
-    SubPoolFactory public immutable factory;
     GPv2Settlement public immutable settlement;
 
-    constructor(SubPoolFactory _factory, GPv2Settlement _settlement, address _attestor) {
-        factory = _factory;
+    constructor(GPv2Settlement _settlement, address _attestor) {
         settlement = _settlement;
         attestor = _attestor;
     }
