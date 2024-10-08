@@ -43,5 +43,5 @@ jobs:
 
       - name: Run Forge tests
         run: |
-          forge test -vvv --fork-url https://eth.llamarpc.com --fork-block-number 19640875
+          forge test -vvv --fork-url https://eth.llamarpc.com --fork-block-number 19640875 --compute-units-per-second 100
         id: test
