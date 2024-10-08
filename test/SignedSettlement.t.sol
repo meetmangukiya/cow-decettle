@@ -53,7 +53,7 @@ contract SignedSettlementTest is BaseTest {
         GPv2Interaction.Data[][3] calldata interactions,
         uint256 deadline
     ) external {
-        vm.assume(deadline >= block.timestamp);
+        vm.assume(deadline >= block.number);
         (bytes memory payloadToSend, bytes memory expectedCalldata) =
             _fullySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, attestor);
 
@@ -76,7 +76,7 @@ contract SignedSettlementTest is BaseTest {
         uint256 deadline,
         uint256[3] memory offsets
     ) external {
-        vm.assume(deadline >= block.timestamp);
+        vm.assume(deadline >= block.number);
         offsets[0] = bound(offsets[0], 0, interactions[0].length);
         offsets[1] = bound(offsets[1], 0, interactions[1].length);
         offsets[2] = bound(offsets[2], 0, interactions[2].length);
@@ -100,14 +100,14 @@ contract SignedSettlementTest is BaseTest {
         GPv2Trade.Data[] memory trades = new GPv2Trade.Data[](2);
         GPv2Interaction.Data[][3] memory interactions;
 
-        uint256 deadline = block.timestamp - 1;
+        uint256 deadline = block.number - 1;
         (bytes memory payloadToSend,) =
             _fullySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, attestor);
         vm.expectRevert(SignedSettlement.SignedSettlement__DeadlineElapsed.selector);
         address(signedSettlement).call(payloadToSend);
 
         VmSafe.Wallet memory notAttestor = vm.createWallet("notAttestor");
-        deadline = block.timestamp;
+        deadline = block.number;
         (payloadToSend,) =
             _fullySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, notAttestor);
         vm.expectRevert(SignedSettlement.SignedSettlement__InvalidAttestor.selector);
@@ -121,14 +121,14 @@ contract SignedSettlementTest is BaseTest {
         GPv2Interaction.Data[][3] memory interactions;
         uint256[3] memory offsets;
 
-        uint256 deadline = block.timestamp - 1;
+        uint256 deadline = block.number - 1;
         (bytes memory payloadToSend,) =
             _partiallySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, offsets, attestor);
         vm.expectRevert(SignedSettlement.SignedSettlement__DeadlineElapsed.selector);
         address(signedSettlement).call(payloadToSend);
 
         VmSafe.Wallet memory notAttestor = vm.createWallet("notAttestor");
-        deadline = block.timestamp;
+        deadline = block.number;
         (payloadToSend,) =
             _partiallySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, offsets, notAttestor);
         vm.expectRevert(SignedSettlement.SignedSettlement__InvalidAttestor.selector);
