@@ -168,9 +168,8 @@ library LibSignedSettlement {
                 mstore(add(dataStart, nBytesToCopy), caller())
                 // hash the message abi.encode(tokens, clearingPrices, trades, interactions) | deadline | solver
                 digest := keccak256(dataStart, add(nBytesToCopy, 0x20))
-                // update the freePtr, 0x20 for the extra word for fn signature and
-                // another 0x20 extra for the solver appended at the end
-                mstore(0x40, add(freePtr, add(nBytesToCopy, 0x40)))
+                // update the freePtr, 0x20 for the extra word for fn selector
+                mstore(0x40, add(freePtr, add(nBytesToCopy, 0x20)))
                 // store the GPv2Interaction.settle method selector
                 mstore(freePtr, 0x13d79a0b)
 
