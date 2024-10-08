@@ -24,29 +24,36 @@ contract SignedSettlement is Auth {
     /// @notice Takes the required settlement data and verifies that it has been
     ///         signed by a `signer`, and subsequently calls `GPv2Settlement.settle`.
     function signedSettleFullySigned(
-        address[] calldata tokens,
-        uint256[] calldata clearingPrices,
-        GPv2Trade.Data[] calldata trades,
+        address[] calldata, // tokens
+        uint256[] calldata, // clearingPrices
+        GPv2Trade.Data[] calldata, // trades
         GPv2Interaction.Data[][3] calldata interactions
     ) external {
         (uint256 deadline, uint256 r, uint256 s, uint256 v, bytes32 digest, uint256 calldataStart, uint256 calldataSize)
-        = LibSignedSettlement.getParamsDigestAndCalldataFullySigned(tokens, clearingPrices, trades, interactions);
+        = LibSignedSettlement.getParamsDigestAndCalldataFullySigned(interactions);
         _verifyAndExecuteSettle(deadline, r, s, v, digest, calldataStart, calldataSize);
     }
 
     /// @notice Takes the required settlement data and verifies that it has been
     ///         signed by a `signer`, and subsequently calls `GPv2Settlement.settle`.
     function signedSettlePartiallySigned(
-        address[] calldata tokens,
-        uint256[] calldata clearingPrices,
-        GPv2Trade.Data[] calldata trades,
+        address[] calldata, // tokens
+        uint256[] calldata, // clearingPrices
+        GPv2Trade.Data[] calldata, // trades
         GPv2Interaction.Data[][3] calldata interactions
     ) external {
         (uint256 deadline, uint256 r, uint256 s, uint256 v, bytes32 digest, uint256 calldataStart, uint256 calldataSize)
-        = LibSignedSettlement.getParamsDigestAndCalldataPartiallySigned(tokens, clearingPrices, trades, interactions);
+        = LibSignedSettlement.getParamsDigestAndCalldataPartiallySigned(interactions);
         _verifyAndExecuteSettle(deadline, r, s, v, digest, calldataStart, calldataSize);
     }
 
+    /// @param deadline      deadline expressed as block number
+    /// @param r             signature part r
+    /// @param s             signature part s
+    /// @param v             signature part v
+    /// @param digest        message digest
+    /// @param calldataStart pointer to the start of calldata in memory that will be used for the `GPv2Settlement.settle` call.
+    /// @param calldataSize  size of the calldata passed to the `GPv2Settlement.settle` call.
     function _verifyAndExecuteSettle(
         uint256 deadline,
         uint256 r,
@@ -56,7 +63,7 @@ contract SignedSettlement is Auth {
         uint256 calldataStart,
         uint256 calldataSize
     ) internal {
-        if (block.timestamp > deadline) revert SignedSettlement__DeadlineElapsed();
+        if (block.number > deadline) revert SignedSettlement__DeadlineElapsed();
 
         address signer = ECDSA.recover(digest, uint8(v), bytes32(r), bytes32(s));
         if (signer != attestor) {

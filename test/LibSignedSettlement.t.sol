@@ -7,28 +7,27 @@ import {console} from "forge-std/console.sol";
 
 library LibSignedSettlementProxy {
     function readExtraBytes(
-        address[] calldata tokens,
-        uint256[] calldata clearingPrices,
-        GPv2Trade.Data[] calldata trades,
+        address[] calldata, // tokens
+        uint256[] calldata, // clearingPrices
+        GPv2Trade.Data[] calldata, // trades
         GPv2Interaction.Data[][3] calldata interactions
     ) external pure returns (bytes calldata remainder, uint256 lastByte) {
-        (remainder, lastByte) = LibSignedSettlement.readExtraBytes(tokens, clearingPrices, trades, interactions);
+        (remainder, lastByte) = LibSignedSettlement.readExtraBytes(interactions);
     }
 
     function readExtraParamsFullySigned(
-        address[] calldata tokens,
-        uint256[] calldata clearingPrices,
-        GPv2Trade.Data[] calldata trades,
+        address[] calldata, // tokens
+        uint256[] calldata, // clearingPrices
+        GPv2Trade.Data[] calldata, // trades
         GPv2Interaction.Data[][3] calldata interactions
     ) external pure returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256 lastByte) {
-        (deadline, r, s, v, lastByte) =
-            LibSignedSettlement.readExtraParamsFullySigned(tokens, clearingPrices, trades, interactions);
+        (deadline, r, s, v, lastByte) = LibSignedSettlement.readExtraParamsFullySigned(interactions);
     }
 
     function readExtraParamsPartiallySigned(
-        address[] calldata tokens,
-        uint256[] calldata clearingPrices,
-        GPv2Trade.Data[] calldata trades,
+        address[] calldata, // tokens
+        uint256[] calldata, // clearingPrices
+        GPv2Trade.Data[] calldata, // trades
         GPv2Interaction.Data[][3] calldata interactions
     )
         external
@@ -36,19 +35,19 @@ library LibSignedSettlementProxy {
         returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256[3] memory offsets, uint256 lastByte)
     {
         (deadline, r, s, v, offsets, lastByte) =
-            LibSignedSettlement.readExtraParamsPartiallySigned(tokens, clearingPrices, trades, interactions);
+            LibSignedSettlement.readExtraParamsPartiallySigned(interactions);
     }
 
     function getParamsDigestAndCalldataFullySigned(
-        address[] calldata tokens,
-        uint256[] calldata clearingPrices,
-        GPv2Trade.Data[] calldata trades,
+        address[] calldata, // tokens
+        uint256[] calldata, // clearingPrices
+        GPv2Trade.Data[] calldata, // trades
         GPv2Interaction.Data[][3] calldata interactions
     ) external view returns (uint256 deadline, uint256 r, uint256 s, uint256 v, bytes32 digest, bytes memory cd) {
         uint256 calldataStart;
         uint256 calldataSize;
         (deadline, r, s, v, digest, calldataStart, calldataSize) =
-            LibSignedSettlement.getParamsDigestAndCalldataFullySigned(tokens, clearingPrices, trades, interactions);
+            LibSignedSettlement.getParamsDigestAndCalldataFullySigned(interactions);
         assembly {
             mstore(sub(calldataStart, 0x20), calldataSize)
             cd := sub(calldataStart, 0x20)
@@ -56,15 +55,15 @@ library LibSignedSettlementProxy {
     }
 
     function getParamsDigestAndCalldataPartiallySigned(
-        address[] calldata tokens,
-        uint256[] calldata clearingPrices,
-        GPv2Trade.Data[] calldata trades,
+        address[] calldata, // tokens
+        uint256[] calldata, // clearingPrices
+        GPv2Trade.Data[] calldata, // trades
         GPv2Interaction.Data[][3] calldata interactions
     ) external view returns (uint256 deadline, uint256 r, uint256 s, uint256 v, bytes32 digest, bytes memory cd) {
         uint256 calldataStart;
         uint256 calldataSize;
         (deadline, r, s, v, digest, calldataStart, calldataSize) =
-            LibSignedSettlement.getParamsDigestAndCalldataPartiallySigned(tokens, clearingPrices, trades, interactions);
+            LibSignedSettlement.getParamsDigestAndCalldataPartiallySigned(interactions);
         console.log("calldataStart, size", calldataStart, calldataSize);
         assembly {
             mstore(sub(calldataStart, 0x20), calldataSize)

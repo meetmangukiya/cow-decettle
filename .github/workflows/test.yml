@@ -35,6 +35,8 @@ jobs:
           forge build --sizes
         id: build
 
+      # some error, even running `forge snapshot` won't generate the file that will satisfy the CI
+      # commenting for now so we can possibly fix this in future
       # - name: snapshot sync check
       #   run: |
       #     forge snapshot -vvv --fork-url https://eth.llamarpc.com --fork-block-number 19640875 --check

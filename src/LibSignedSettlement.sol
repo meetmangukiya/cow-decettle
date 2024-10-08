@@ -10,12 +10,11 @@ library LibSignedSettlement {
 
     /// @dev Computes and returns the calldata range that was appended to the ABI
     ///      encoded args. It also returns the last byte number of the ABI encoded args.
-    function readExtraBytes(
-        address[] calldata,
-        uint256[] calldata,
-        GPv2Trade.Data[] calldata,
-        GPv2Interaction.Data[][3] calldata interactions
-    ) internal pure returns (bytes calldata remainderBytes, uint256 lastByte) {
+    function readExtraBytes(GPv2Interaction.Data[][3] calldata interactions)
+        internal
+        pure
+        returns (bytes calldata remainderBytes, uint256 lastByte)
+    {
         {
             uint256 lenPostInteractions = interactions[2].length;
             // if post interactions is not empty, compute the last byte of the last interaction
@@ -65,15 +64,14 @@ library LibSignedSettlement {
     ///      we determine the expected byteoffset to read based on the last post interaction. Acts as a
     ///      a validation that a deadline was infact encoded at the end of calldata and not accidentally
     ///      reading a word from the last interaction's encoded data.
-    function readExtraParamsFullySigned(
-        address[] calldata tokens,
-        uint256[] calldata clearingPrices,
-        GPv2Trade.Data[] calldata trades,
-        GPv2Interaction.Data[][3] calldata interactions
-    ) internal pure returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256 lastByte) {
+    function readExtraParamsFullySigned(GPv2Interaction.Data[][3] calldata interactions)
+        internal
+        pure
+        returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256 lastByte)
+    {
         {
             bytes calldata extraBytes;
-            (extraBytes, lastByte) = readExtraBytes(tokens, clearingPrices, trades, interactions);
+            (extraBytes, lastByte) = readExtraBytes(interactions);
 
             if (lastByte != msg.data.length - 97) {
                 revert LibSignedSettlement__InvalidExtraParamsFullySigned();
@@ -95,25 +93,20 @@ library LibSignedSettlement {
     ///
     ///      Encoding for the appended data is expected to be `abi.encodePacked(deadline, r, s, v, offsets)`.
     ///      `v` is assumed to be uint8, while all others will encode to full 32 byte word.
-    ///      `offsets` is assumed to be `uint[3]`.
+    ///      `offsets` is assumed to be `uint[3]`. `offsets` gives the number of interactions that were signed.
     ///
-    ///      Instead of reading the last 97 bytes directly with `calldataload`
+    ///      Instead of reading the last 193 bytes directly with `calldataload`
     ///      we determine the expected byteoffset to read based on the last post interaction. Acts as a
     ///      a validation that a deadline was infact encoded at the end of calldata and not accidentally
     ///      reading a word from the last interaction's encoded data.
-    function readExtraParamsPartiallySigned(
-        address[] calldata tokens,
-        uint256[] calldata clearingPrices,
-        GPv2Trade.Data[] calldata trades,
-        GPv2Interaction.Data[][3] calldata interactions
-    )
+    function readExtraParamsPartiallySigned(GPv2Interaction.Data[][3] calldata interactions)
         internal
         pure
         returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256[3] calldata offsets, uint256 lastByte)
     {
         {
             bytes calldata extraBytes;
-            (extraBytes, lastByte) = readExtraBytes(tokens, clearingPrices, trades, interactions);
+            (extraBytes, lastByte) = readExtraBytes(interactions);
 
             if (lastByte != msg.data.length - 193) {
                 revert LibSignedSettlement__InvalidExtraParamsPartiallySigned();
@@ -143,12 +136,7 @@ library LibSignedSettlement {
     ///
     ///      The digest is assumed to be keccak256 hash of the following encoded data:
     ///      `abi.encodePacked(abi.encode(tokens, clearingPrices, trades, interactions), abi.encode(deadline, solver))`
-    function getParamsDigestAndCalldataFullySigned(
-        address[] calldata tokens,
-        uint256[] calldata clearingPrices,
-        GPv2Trade.Data[] calldata trades,
-        GPv2Interaction.Data[][3] calldata interactions
-    )
+    function getParamsDigestAndCalldataFullySigned(GPv2Interaction.Data[][3] calldata interactions)
         internal
         view
         returns (
@@ -163,11 +151,15 @@ library LibSignedSettlement {
     {
         {
             uint256 lastByte;
-            (deadline, r, s, v, lastByte) = readExtraParamsFullySigned(tokens, clearingPrices, trades, interactions);
+            (deadline, r, s, v, lastByte) = readExtraParamsFullySigned(interactions);
 
             assembly ("memory-safe") {
                 let freePtr := mload(0x40)
+                // Allocating one extra word to later write the function selector for the call
                 let dataStart := add(freePtr, 0x20)
+                // We want to copy the calldata 1-to-1 since the data is compatible
+                // with a call to CoW Protocol's `settle`.
+                // The only exception is the call selector, which here we ignore
                 // lastByte - 4(method id) + 32(deadline)
                 let nBytesToCopy := add(lastByte, 0x1c)
                 // copy all the params including the extra param `deadline` appended to the calldata
@@ -176,8 +168,9 @@ library LibSignedSettlement {
                 mstore(add(dataStart, nBytesToCopy), caller())
                 // hash the message abi.encode(tokens, clearingPrices, trades, interactions) | deadline | solver
                 digest := keccak256(dataStart, add(nBytesToCopy, 0x20))
-                // update the freePtr
-                mstore(0x40, add(freePtr, add(nBytesToCopy, 0x20)))
+                // update the freePtr, 0x20 for the extra word for fn signature and
+                // another 0x20 extra for the solver appended at the end
+                mstore(0x40, add(freePtr, add(nBytesToCopy, 0x40)))
                 // store the GPv2Interaction.settle method selector
                 mstore(freePtr, 0x13d79a0b)
 
@@ -192,13 +185,8 @@ library LibSignedSettlement {
     ///      call.
     ///
     ///      The digest is assumed to be keccak256 hash of the following encoded data:
-    ///      `abi.encodePacked(abi.encode(tokens, clearingPrices, trades, interactions), abi.encode(deadline, solver))`
-    function getParamsDigestAndCalldataPartiallySigned(
-        address[] calldata tokens,
-        uint256[] calldata clearingPrices,
-        GPv2Trade.Data[] calldata trades,
-        GPv2Interaction.Data[][3] calldata interactions
-    )
+    ///      `abi.encodePacked(abi.encode(tokens, clearingPrices, trades, partialInteractions), abi.encode(deadline, solver))`
+    function getParamsDigestAndCalldataPartiallySigned(GPv2Interaction.Data[][3] calldata interactions)
         internal
         view
         returns (
@@ -213,12 +201,8 @@ library LibSignedSettlement {
     {
         {
             uint256 lastByte;
-            (deadline, r, s, v,, lastByte) =
-                readExtraParamsPartiallySigned(tokens, clearingPrices, trades, interactions);
             uint256[3] calldata offsets;
-            assembly {
-                offsets := add(lastByte, 0x61)
-            }
+            (deadline, r, s, v, offsets, lastByte) = readExtraParamsPartiallySigned(interactions);
 
             // the memory range to be copied for pre/intra/post interaction arrays' subset
             // starting at `dataSlices`
@@ -249,7 +233,7 @@ library LibSignedSettlement {
                 let dataStart := add(freePtr, 0x20)
 
                 let nBytesToCopy := sub(interactions, 0x04)
-                // copy upto trades' last byte
+                // copy all the settlement data excluding selector and interactions
                 calldatacopy(dataStart, 0x04, nBytesToCopy)
 
                 let interactionsStart := add(dataStart, nBytesToCopy)
@@ -297,6 +281,9 @@ library LibSignedSettlement {
                     }
 
                     // copy the interaction subsets
+
+                    // We reserve the first three bytes for storing the offsets.
+                    // Actual writing takes place in `copyInteractionsSubset`.
                     lastWrittenByte := add(lastWrittenByte, 0x60)
                     lastWrittenByte :=
                         copyInteractionsSubset(0x00, offsets, interactionsStart, lastWrittenByte, interactions, dataSlices)
@@ -327,7 +314,7 @@ library LibSignedSettlement {
         }
     }
 
-    /// @dev stores the memory offse and size at memory slots `memoryOffset` and `memoryOffset + 20`
+    /// @dev stores the memory offsets and size at memory slots `memoryOffset` and `memoryOffset + 20`
     function storeSubsetOffets(GPv2Interaction.Data[] calldata interactions, uint256 memoryOffset, uint256 subsetLen)
         internal
         pure
