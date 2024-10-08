@@ -103,15 +103,17 @@ contract SignedSettlementTest is BaseTest {
         uint256 deadline = block.number - 1;
         (bytes memory payloadToSend,) =
             _fullySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, attestor);
-        vm.expectRevert(SignedSettlement.SignedSettlement__DeadlineElapsed.selector);
-        address(signedSettlement).call(payloadToSend);
+        _expectRevert(
+            SignedSettlement.SignedSettlement__DeadlineElapsed.selector, address(signedSettlement), payloadToSend
+        );
 
         VmSafe.Wallet memory notAttestor = vm.createWallet("notAttestor");
         deadline = block.number;
         (payloadToSend,) =
             _fullySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, notAttestor);
-        vm.expectRevert(SignedSettlement.SignedSettlement__InvalidAttestor.selector);
-        address(signedSettlement).call(payloadToSend);
+        _expectRevert(
+            SignedSettlement.SignedSettlement__InvalidAttestor.selector, address(signedSettlement), payloadToSend
+        );
     }
 
     function testPartiallySignedSettle() external {
@@ -124,15 +126,17 @@ contract SignedSettlementTest is BaseTest {
         uint256 deadline = block.number - 1;
         (bytes memory payloadToSend,) =
             _partiallySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, offsets, attestor);
-        vm.expectRevert(SignedSettlement.SignedSettlement__DeadlineElapsed.selector);
-        address(signedSettlement).call(payloadToSend);
+        _expectRevert(
+            SignedSettlement.SignedSettlement__DeadlineElapsed.selector, address(signedSettlement), payloadToSend
+        );
 
         VmSafe.Wallet memory notAttestor = vm.createWallet("notAttestor");
         deadline = block.number;
         (payloadToSend,) =
             _partiallySignedSettleCalldata(tokens, clearingPrices, trades, interactions, deadline, offsets, notAttestor);
-        vm.expectRevert(SignedSettlement.SignedSettlement__InvalidAttestor.selector);
-        address(signedSettlement).call(payloadToSend);
+        _expectRevert(
+            SignedSettlement.SignedSettlement__InvalidAttestor.selector, address(signedSettlement), payloadToSend
+        );
     }
 
     function _fullySignedSettleCalldata(
@@ -184,5 +188,15 @@ contract SignedSettlementTest is BaseTest {
             SignedSettlement.signedSettlePartiallySigned.selector, encoded, deadline_, r, s, v, offsets_
         );
         expectedCalldata = abi.encodePacked(GPv2Settlement.settle.selector, encoded);
+    }
+
+    function _expectRevert(bytes4 selector, address target, bytes memory cd) internal {
+        vm.expectRevert(selector);
+        (bool success, bytes memory ret) = address(target).call(cd);
+        if (!success) {
+            assembly ("memory-safe") {
+                revert(add(ret, 0x20), returndatasize())
+            }
+        }
     }
 }
