@@ -34,8 +34,7 @@ library LibSignedSettlementProxy {
         pure
         returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256[3] memory offsets, uint256 lastByte)
     {
-        (deadline, r, s, v, offsets, lastByte) =
-            LibSignedSettlement.readExtraParamsPartiallySigned(interactions);
+        (deadline, r, s, v, offsets, lastByte) = LibSignedSettlement.readExtraParamsPartiallySigned(interactions);
     }
 
     function getParamsDigestAndCalldataFullySigned(
