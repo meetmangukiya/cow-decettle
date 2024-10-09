@@ -8,47 +8,12 @@ library LibSignedSettlement {
     error LibSignedSettlement__InvalidExtraParamsFullySigned();
     error LibSignedSettlement__InvalidExtraParamsPartiallySigned();
 
-    /// @dev Computes and returns the calldata range that was appended to the ABI
-    ///      encoded args. It also returns the last byte number of the ABI encoded args.
-    function readExtraBytes(GPv2Interaction.Data[][3] calldata interactions)
-        internal
-        pure
-        returns (bytes calldata remainderBytes, uint256 lastByte)
-    {
-        {
-            uint256 lenPostInteractions = interactions[2].length;
-            // if post interactions is not empty, compute the last byte of the last interaction
-            if (lenPostInteractions > 0) {
-                GPv2Interaction.Data calldata lastInteraction = interactions[2][lenPostInteractions - 1];
-                uint256 offset;
-                assembly ("memory-safe") {
-                    offset := lastInteraction
-                }
-                uint256 cdlen = lastInteraction.callData.length;
-                uint256 cdWords = (cdlen % 32 == 0 ? cdlen / 32 : (cdlen / 32) + 1);
-                lastByte = offset
-                    + (
-                        1 // target
-                            + 1 // value
-                            + 1 // callData offset
-                            + 1 // callData length
-                                // n words for callData
-                            + cdWords
-                    ) * 32;
-            }
-            // if post interactions is empty, that is the last byte
-            else {
-                GPv2Interaction.Data[] calldata postInteractions = interactions[2];
-                assembly ("memory-safe") {
-                    lastByte := postInteractions.offset
-                }
-            }
-
-            // define the extra bytes calldata range
-            assembly ("memory-safe") {
-                remainderBytes.offset := lastByte
-                remainderBytes.length := sub(calldatasize(), lastByte)
-            }
+    /// @dev Return calldata byte slice of last n bytes
+    function readLastNBytes(uint256 n) internal pure returns (bytes calldata data) {
+        uint256 offset = msg.data.length - n;
+        assembly ("memory-safe") {
+            data.offset := offset
+            data.length := n
         }
     }
 
@@ -64,24 +29,19 @@ library LibSignedSettlement {
     ///      we determine the expected byteoffset to read based on the last post interaction. Acts as a
     ///      a validation that a deadline was infact encoded at the end of calldata and not accidentally
     ///      reading a word from the last interaction's encoded data.
-    function readExtraParamsFullySigned(GPv2Interaction.Data[][3] calldata interactions)
+    function readExtraParamsFullySigned()
         internal
         pure
         returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256 lastByte)
     {
         {
-            bytes calldata extraBytes;
-            (extraBytes, lastByte) = readExtraBytes(interactions);
-
-            if (lastByte != msg.data.length - 97) {
-                revert LibSignedSettlement__InvalidExtraParamsFullySigned();
-            }
-
+            bytes calldata extraBytes = readLastNBytes(97);
             assembly ("memory-safe") {
-                deadline := calldataload(lastByte)
-                r := calldataload(add(lastByte, 32))
-                s := calldataload(add(lastByte, 64))
-                v := and(calldataload(add(lastByte, 65)), 0xff)
+                deadline := calldataload(extraBytes.offset)
+                r := calldataload(add(extraBytes.offset, 0x20))
+                s := calldataload(add(extraBytes.offset, 0x40))
+                v := and(calldataload(add(extraBytes.offset, 0x41)), 0xff)
+                lastByte := extraBytes.offset
             }
         }
     }
@@ -105,19 +65,15 @@ library LibSignedSettlement {
         returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256[3] calldata offsets, uint256 lastByte)
     {
         {
-            bytes calldata extraBytes;
-            (extraBytes, lastByte) = readExtraBytes(interactions);
-
-            if (lastByte != msg.data.length - 193) {
-                revert LibSignedSettlement__InvalidExtraParamsPartiallySigned();
-            }
+            bytes calldata extraBytes = readLastNBytes(193);
 
             assembly ("memory-safe") {
-                deadline := calldataload(lastByte)
-                r := calldataload(add(lastByte, 0x20))
-                s := calldataload(add(lastByte, 0x40))
-                v := and(calldataload(add(lastByte, 0x41)), 0xff)
-                offsets := add(lastByte, 0x61)
+                deadline := calldataload(extraBytes.offset)
+                r := calldataload(add(extraBytes.offset, 0x20))
+                s := calldataload(add(extraBytes.offset, 0x40))
+                v := and(calldataload(add(extraBytes.offset, 0x41)), 0xff)
+                offsets := add(extraBytes.offset, 0x61)
+                lastByte := extraBytes.offset
             }
 
             // validate that the subset size is <= interactions length
@@ -136,7 +92,7 @@ library LibSignedSettlement {
     ///
     ///      The digest is assumed to be keccak256 hash of the following encoded data:
     ///      `abi.encodePacked(abi.encode(tokens, clearingPrices, trades, interactions), abi.encode(deadline, solver))`
-    function getParamsDigestAndCalldataFullySigned(GPv2Interaction.Data[][3] calldata interactions)
+    function getParamsDigestAndCalldataFullySigned()
         internal
         view
         returns (
@@ -151,7 +107,7 @@ library LibSignedSettlement {
     {
         {
             uint256 lastByte;
-            (deadline, r, s, v, lastByte) = readExtraParamsFullySigned(interactions);
+            (deadline, r, s, v, lastByte) = readExtraParamsFullySigned();
 
             assembly ("memory-safe") {
                 let freePtr := mload(0x40)

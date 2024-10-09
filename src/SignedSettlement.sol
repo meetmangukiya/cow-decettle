@@ -27,10 +27,10 @@ contract SignedSettlement is Auth {
         address[] calldata, // tokens
         uint256[] calldata, // clearingPrices
         GPv2Trade.Data[] calldata, // trades
-        GPv2Interaction.Data[][3] calldata interactions
+        GPv2Interaction.Data[][3] calldata // interactions
     ) external {
         (uint256 deadline, uint256 r, uint256 s, uint256 v, bytes32 digest, uint256 calldataStart, uint256 calldataSize)
-        = LibSignedSettlement.getParamsDigestAndCalldataFullySigned(interactions);
+        = LibSignedSettlement.getParamsDigestAndCalldataFullySigned();
         _verifyAndExecuteSettle(deadline, r, s, v, digest, calldataStart, calldataSize);
     }
 

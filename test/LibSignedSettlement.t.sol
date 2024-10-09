@@ -6,22 +6,17 @@ import {GPv2Settlement} from "cowprotocol/GPv2Settlement.sol";
 import {console} from "forge-std/console.sol";
 
 library LibSignedSettlementProxy {
-    function readExtraBytes(
-        address[] calldata, // tokens
-        uint256[] calldata, // clearingPrices
-        GPv2Trade.Data[] calldata, // trades
-        GPv2Interaction.Data[][3] calldata interactions
-    ) external pure returns (bytes calldata remainder, uint256 lastByte) {
-        (remainder, lastByte) = LibSignedSettlement.readExtraBytes(interactions);
+    function readLastNBytes() external view returns (bytes calldata data) {
+        data = LibSignedSettlement.readLastNBytes(msg.value);
     }
 
     function readExtraParamsFullySigned(
         address[] calldata, // tokens
         uint256[] calldata, // clearingPrices
         GPv2Trade.Data[] calldata, // trades
-        GPv2Interaction.Data[][3] calldata interactions
+        GPv2Interaction.Data[][3] calldata // interactions
     ) external pure returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256 lastByte) {
-        (deadline, r, s, v, lastByte) = LibSignedSettlement.readExtraParamsFullySigned(interactions);
+        (deadline, r, s, v, lastByte) = LibSignedSettlement.readExtraParamsFullySigned();
     }
 
     function readExtraParamsPartiallySigned(
@@ -41,12 +36,12 @@ library LibSignedSettlementProxy {
         address[] calldata, // tokens
         uint256[] calldata, // clearingPrices
         GPv2Trade.Data[] calldata, // trades
-        GPv2Interaction.Data[][3] calldata interactions
+        GPv2Interaction.Data[][3] calldata // interactions
     ) external view returns (uint256 deadline, uint256 r, uint256 s, uint256 v, bytes32 digest, bytes memory cd) {
         uint256 calldataStart;
         uint256 calldataSize;
         (deadline, r, s, v, digest, calldataStart, calldataSize) =
-            LibSignedSettlement.getParamsDigestAndCalldataFullySigned(interactions);
+            LibSignedSettlement.getParamsDigestAndCalldataFullySigned();
         assembly {
             mstore(sub(calldataStart, 0x20), calldataSize)
             cd := sub(calldataStart, 0x20)
@@ -72,6 +67,30 @@ library LibSignedSettlementProxy {
 }
 
 contract LibSignedSettlementTest is Test {
+    function testReadLastNBytes(bytes calldata data, uint256 n) external {
+        bytes memory cd = abi.encodePacked(LibSignedSettlementProxy.readLastNBytes.selector, data);
+        n = bound(n, 0, cd.length);
+        vm.deal(address(this), n);
+
+        (bool success, bytes memory ret) = address(LibSignedSettlementProxy).call{value: n}(cd);
+        if (!success) {
+            assembly ("memory-safe") {
+                revert(add(ret, 0x20), returndatasize())
+            }
+        }
+        bytes memory retret = abi.decode(ret, (bytes));
+        bytes memory slice = new bytes(n);
+
+        assembly ("memory-safe") {
+            let offset := sub(add(add(cd, 0x20), mload(cd)), n)
+            mcopy(add(slice, 0x20), offset, n)
+        }
+
+        bytes32 retHash = keccak256(retret);
+        bytes32 expectedHash = keccak256(slice);
+        assertEq(retHash, expectedHash, "returned byte slice not as expected");
+    }
+
     function testReadExtraParamsFullySigned(
         address[] calldata tokens,
         uint256[] calldata prices,
@@ -94,24 +113,6 @@ contract LibSignedSettlementTest is Test {
         assertEq(readR, r, "read r not as expected");
         assertEq(readS, s, "read s not as expected");
         assertEq(readV, v, "read v not as expected");
-        assertEq(lastByte, cd.length, "lastByte not as expected");
-    }
-
-    function testExtraBytes(
-        address[] calldata tokens,
-        uint256[] calldata clearingPrices,
-        GPv2Trade.Data[] calldata trades,
-        GPv2Interaction.Data[][3] calldata interactions,
-        bytes calldata extraBytes
-    ) external {
-        bytes memory cd = abi.encodeWithSelector(
-            LibSignedSettlementProxy.readExtraBytes.selector, tokens, clearingPrices, trades, interactions
-        );
-        bytes memory cdWithExtraData = abi.encodePacked(cd, extraBytes);
-        (bool success, bytes memory data) = address(LibSignedSettlementProxy).call(cdWithExtraData);
-        require(success, "extraBytes call failed");
-        (bytes memory extraBytesGot, uint256 lastByte) = abi.decode(data, (bytes, uint256));
-        assertEq(extraBytesGot, extraBytes, "extraBytes not as expected");
         assertEq(lastByte, cd.length, "lastByte not as expected");
     }
 

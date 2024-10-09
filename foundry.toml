@@ -8,6 +8,7 @@ solc = "0.8.26"
 remappings = [
   'cowprotocol/=lib/contracts/src/contracts/'
 ]
+evm_version = "cancun"
 
 # [fuzz]
 # max_test_rejects = 10000000
