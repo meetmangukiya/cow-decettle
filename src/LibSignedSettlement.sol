@@ -24,11 +24,6 @@ library LibSignedSettlement {
     ///
     ///      Encoding for the appended data is expected to be `abi.encodePacked(deadline, r, s, v)`.
     ///      `v` is assumed to be uint8, while all others will encode to 32 byte words.
-    ///
-    ///      Instead of reading the last 97 bytes directly with `calldataload`
-    ///      we determine the expected byteoffset to read based on the last post interaction. Acts as a
-    ///      a validation that a deadline was infact encoded at the end of calldata and not accidentally
-    ///      reading a word from the last interaction's encoded data.
     function readExtraParamsFullySigned()
         internal
         pure
@@ -54,11 +49,6 @@ library LibSignedSettlement {
     ///      Encoding for the appended data is expected to be `abi.encodePacked(deadline, r, s, v, offsets)`.
     ///      `v` is assumed to be uint8, while all others will encode to full 32 byte word.
     ///      `offsets` is assumed to be `uint[3]`. `offsets` gives the number of interactions that were signed.
-    ///
-    ///      Instead of reading the last 193 bytes directly with `calldataload`
-    ///      we determine the expected byteoffset to read based on the last post interaction. Acts as a
-    ///      a validation that a deadline was infact encoded at the end of calldata and not accidentally
-    ///      reading a word from the last interaction's encoded data.
     function readExtraParamsPartiallySigned(GPv2Interaction.Data[][3] calldata interactions)
         internal
         pure
