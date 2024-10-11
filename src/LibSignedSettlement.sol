@@ -206,6 +206,11 @@ library LibSignedSettlement {
                             calldataload(add(interactions_, calldataload(add(interactions_, relativeOffset))))
                         let firstInteractionOffset :=
                             add(add(interactions_, calldataload(add(interactions_, relativeOffset))), 0x20)
+                        // if there are n interactions of which only m interactions at the beginning are signed
+                        // total number of offsets are n, so the first interaction offset in full interactions set
+                        // is (n - m) words ahead of the offset it'd be in the `m` interactions' subset, thats why
+                        // we need to therefore modify the offset of the original interaction's calldata, reducing it
+                        // by those number of words.
                         let offsetsCutShort := mul(sub(nInteractions, nSubset), 0x20)
                         for { let i := 0 } lt(i, nSubset) { i := add(i, 1) } {
                             mstore(
@@ -218,8 +223,6 @@ library LibSignedSettlement {
                         // copy the interactions subset
                         let interactionBytesStart := mload(add(dataSlices_, mul(relativeOffset, 2)))
                         let nInteractionBytes := mload(add(add(dataSlices_, mul(relativeOffset, 2)), 0x20))
-                        mstore(0x00, interactionBytesStart)
-                        mstore(0x20, nInteractionBytes)
                         calldatacopy(lastWrittenByte_, interactionBytesStart, nInteractionBytes)
                         lastWrittenByte_ := add(lastWrittenByte_, nInteractionBytes)
                         newLastWrittenByte := lastWrittenByte_
