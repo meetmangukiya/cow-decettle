@@ -27,9 +27,9 @@ library LibSignedSettlementProxy {
     )
         external
         pure
-        returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256[3] memory offsets, uint256 lastByte)
+        returns (uint256 deadline, uint256 r, uint256 s, uint256 v, uint256[3] memory lengths, uint256 lastByte)
     {
-        (deadline, r, s, v, offsets, lastByte) = LibSignedSettlement.readExtraParamsPartiallySigned(interactions);
+        (deadline, r, s, v, lengths, lastByte) = LibSignedSettlement.readExtraParamsPartiallySigned(interactions);
     }
 
     function getParamsDigestAndCalldataFullySigned(
@@ -125,11 +125,11 @@ contract LibSignedSettlementTest is Test {
         uint256 s,
         uint8 v,
         uint256 deadline,
-        uint256[3] memory offsets
+        uint256[3] memory lengths
     ) external {
-        offsets[0] = interactions[0].length > 1 ? bound(offsets[0], 0, interactions[0].length - 1) : 0;
-        offsets[1] = interactions[1].length > 1 ? bound(offsets[1], 0, interactions[1].length - 1) : 0;
-        offsets[2] = interactions[2].length > 1 ? bound(offsets[2], 0, interactions[2].length - 1) : 0;
+        lengths[0] = interactions[0].length > 1 ? bound(lengths[0], 0, interactions[0].length - 1) : 0;
+        lengths[1] = interactions[1].length > 1 ? bound(lengths[1], 0, interactions[1].length - 1) : 0;
+        lengths[2] = interactions[2].length > 1 ? bound(lengths[2], 0, interactions[2].length - 1) : 0;
         bytes memory cd = abi.encodeWithSelector(
             LibSignedSettlementProxy.readExtraParamsPartiallySigned.selector,
             tokens,
@@ -137,16 +137,16 @@ contract LibSignedSettlementTest is Test {
             trades,
             interactions
         );
-        bytes memory cdWithParams = abi.encodePacked(cd, deadline, r, s, v, offsets);
+        bytes memory cdWithParams = abi.encodePacked(cd, deadline, r, s, v, lengths);
         (bool success, bytes memory data) = address(LibSignedSettlementProxy).call(cdWithParams);
         require(success, "readExtraParamsPartiallySigned call failed");
-        (uint256 deadline_, uint256 r_, uint256 s_, uint256 v_, uint256[3] memory offsets_, uint256 lastByte) =
+        (uint256 deadline_, uint256 r_, uint256 s_, uint256 v_, uint256[3] memory lengths_, uint256 lastByte) =
             abi.decode(data, (uint256, uint256, uint256, uint256, uint256[3], uint256));
         assertEq(deadline_, deadline, "deadline not as expected");
         assertEq(r, r_, "r not as expected");
         assertEq(s, s_, "s not as expected");
         assertEq(v, v_, "v not as expected");
-        assertEq(keccak256(abi.encode(offsets_)), keccak256(abi.encode(offsets)), "offsets not as expected");
+        assertEq(keccak256(abi.encode(lengths_)), keccak256(abi.encode(lengths)), "lengths not as expected");
         assertEq(lastByte, cd.length, "lastByte not as expected");
     }
 
@@ -197,15 +197,15 @@ contract LibSignedSettlementTest is Test {
         uint256 r,
         uint256 s,
         uint8 v,
-        uint256[3] memory offsets
+        uint256[3] memory lengths
     ) external {
         {
             console.log("tokens, prices, trades, ", tokens.length, clearingPrices.length, trades.length);
             console.log("i0, i1, i2", interactions[0].length, interactions[1].length, interactions[2].length);
-            offsets[0] = interactions[0].length >= 1 ? bound(offsets[0], 0, interactions[0].length - 1) : 0;
-            offsets[1] = interactions[1].length >= 1 ? bound(offsets[1], 0, interactions[1].length - 1) : 0;
-            offsets[2] = interactions[2].length >= 1 ? bound(offsets[2], 0, interactions[2].length - 1) : 0;
-            console.log("o0, o1, o2", offsets[0], offsets[1], offsets[2]);
+            lengths[0] = interactions[0].length >= 1 ? bound(lengths[0], 0, interactions[0].length - 1) : 0;
+            lengths[1] = interactions[1].length >= 1 ? bound(lengths[1], 0, interactions[1].length - 1) : 0;
+            lengths[2] = interactions[2].length >= 1 ? bound(lengths[2], 0, interactions[2].length - 1) : 0;
+            console.log("o0, o1, o2", lengths[0], lengths[1], lengths[2]);
             console.log("deadline", deadline);
         }
 
@@ -214,8 +214,8 @@ contract LibSignedSettlementTest is Test {
         {
             GPv2Interaction.Data[][3] memory subsetInteractions;
             for (uint256 i = 0; i < 3; i++) {
-                subsetInteractions[i] = new GPv2Interaction.Data[](offsets[i]);
-                for (uint256 j = 0; j < offsets[i]; j++) {
+                subsetInteractions[i] = new GPv2Interaction.Data[](lengths[i]);
+                for (uint256 j = 0; j < lengths[i]; j++) {
                     subsetInteractions[i][j] = interactions[i][j];
                 }
             }
@@ -230,7 +230,7 @@ contract LibSignedSettlementTest is Test {
                 tradesOffset := mload(add(encodedParams, 0x60))
                 interactionsOffset := mload(add(encodedParams, 0x80))
             }
-            console.log("offsets", tokenOffset, clearingPricesOffset, tradesOffset);
+            console.log("lengths", tokenOffset, clearingPricesOffset, tradesOffset);
             console.log("interactions offset", interactionsOffset);
         }
 
@@ -239,7 +239,7 @@ contract LibSignedSettlementTest is Test {
         bytes memory data;
         {
             bool success;
-            bytes memory cdWithParams = abi.encodePacked(cd, deadline, r, s, v, offsets);
+            bytes memory cdWithParams = abi.encodePacked(cd, deadline, r, s, v, lengths);
             (success, data) = address(LibSignedSettlementProxy).call(cdWithParams);
             require(success, "getParamsDigestAndCalldataPartiallySigned call failed");
         }

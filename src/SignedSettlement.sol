@@ -23,6 +23,13 @@ contract SignedSettlement is Auth {
 
     /// @notice Takes the required settlement data and verifies that it has been
     ///         signed by a `signer`, and subsequently calls `GPv2Settlement.settle`.
+    /// @dev    Extra parameters need to be encoded at the end of the abi encoded calldata
+    ///         for calling this function.
+    ///         The calldata is as follows:
+    ///             abi.encodePacked(
+    ///                 abi.encodeCall(this.sigendSettleFullySigned, (tokens, clearingPrices, trades, interactions)),
+    ///                 deadline, r, s, v
+    ///             )
     function signedSettleFullySigned(
         address[] calldata, // tokens
         uint256[] calldata, // clearingPrices
@@ -36,6 +43,13 @@ contract SignedSettlement is Auth {
 
     /// @notice Takes the required settlement data and verifies that it has been
     ///         signed by a `signer`, and subsequently calls `GPv2Settlement.settle`.
+    /// @dev    Extra parameters need to be encoded at the end of the abi encoded calldata
+    ///         for calling this function.
+    ///         The calldata is as follows:
+    ///             abi.encodePacked(
+    ///                 abi.encodeCall(this.signedSettleFullySigned, (tokens, clearingPrices, trades, interactions)),
+    ///                 deadline, r, s, v, lengths
+    ///             )
     function signedSettlePartiallySigned(
         address[] calldata, // tokens
         uint256[] calldata, // clearingPrices
