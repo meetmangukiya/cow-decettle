@@ -195,6 +195,12 @@ library LibSignedSettlement {
 
                     /// @dev copy lengths[i] number of interactions into memory and adjust the interaction array length
                     ///      and offsets in-place to get an ABI-compliant result of partially encoded settle call params.
+                    /// @param relativeOffset:      offset to read the lengths_ from
+                    /// @param lengths_:            the partial interaction array lengths
+                    /// @param interactionsStart_:  byte where the interactions start
+                    /// @param lastWrittenByte_:    last written byte
+                    /// @param interactions_:       the interactions array
+                    /// @param dataSlices_:         data slices containing offset and length for the memory slice
                     function copyInteractionsSubset(
                         relativeOffset, lengths_, interactionsStart_, lastWrittenByte_, interactions_, dataSlices_
                     ) -> newLastWrittenByte {
