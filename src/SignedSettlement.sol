@@ -43,6 +43,8 @@ contract SignedSettlement is Auth {
 
     /// @notice Takes the required settlement data and verifies that it has been
     ///         signed by a `signer`, and subsequently calls `GPv2Settlement.settle`.
+    ///         WARN: it is assumed that the signer uses strict ABI encoding to encode the
+    ///               data it signs.
     /// @dev    Extra parameters need to be encoded at the end of the abi encoded calldata
     ///         for calling this function.
     ///         The calldata is as follows:

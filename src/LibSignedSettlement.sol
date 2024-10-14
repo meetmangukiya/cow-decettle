@@ -132,6 +132,8 @@ library LibSignedSettlement {
     ///
     ///      The digest is assumed to be keccak256 hash of the following encoded data:
     ///      `abi.encodePacked(abi.encode(tokens, clearingPrices, trades, partialInteractions), abi.encode(deadline, solver))`
+    ///      WARN: it is assumed that the signer uses strict ABI encoding to encode the
+    ///            data it signs.
     function getParamsDigestAndCalldataPartiallySigned(GPv2Interaction.Data[][3] calldata interactions)
         internal
         view
