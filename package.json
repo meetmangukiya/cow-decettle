@@ -1,0 +1,15 @@
+{
+  "name": "cow-decettle",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "git@github.com:meetmangukiya/cow-decettle.git",
+  "author": "Meet Mangukiya <meet@flamy.dev>",
+  "license": "MIT",
+  "dependencies": {
+    "ethers": "^6.13.0",
+    "typescript": "^5.4.5"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2"
+  }
+}
